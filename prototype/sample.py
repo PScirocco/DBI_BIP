@@ -13,12 +13,12 @@ import imio
 from sim_runner import StepResult
 from state import Step, load_model_csv, load_simconf_csv
 
-# (名前, 入力画像, ヒートマップ, 初期ストレス)  ―― eval_exec.bat の並びに対応
+# (名前キー, 入力画像, ヒートマップ, 初期ストレス)  ―― eval_exec.bat の並びに対応
 SAMPLE_STEPS = [
-    ("① Aging（動画・ゼロから）", "mov_001_480x270.mp4", "mov_ht_001_480x270.mp4", "none"),
-    ("② PQ評価（静止画）",        "eval_img.png",        "eval_img_ht.png",        "prev"),
-    ("③ Aging 継続（動画）",      "mov_001_480x270.mp4", "mov_ht_001_480x270.mp4", "prev"),
-    ("④ PQ評価（静止画）",        "eval_img.png",        "eval_img_ht.png",        "prev"),
+    ("sample.s1", "mov_001_480x270.mp4", "mov_ht_001_480x270.mp4", "none"),
+    ("sample.s2", "eval_img.png",        "eval_img_ht.png",        "prev"),
+    ("sample.s3", "mov_001_480x270.mp4", "mov_ht_001_480x270.mp4", "prev"),
+    ("sample.s4", "eval_img.png",        "eval_img_ht.png",        "prev"),
 ]
 
 
@@ -34,8 +34,8 @@ def build_sample_steps(folders: dict) -> list[Step]:
     simc = load_simconf_csv(scsv) if scsv.exists() else None
 
     steps: list[Step] = []
-    for name, img, ht, init in SAMPLE_STEPS:
-        s = Step(name=name, input_image=img, heatmap=ht, init_stress=init)
+    for name_key, img, ht, init in SAMPLE_STEPS:
+        s = Step(name_key=name_key, input_image=img, heatmap=ht, init_stress=init)
         if model:
             s.model = {k: list(v) for k, v in model.items()}
         if simc:

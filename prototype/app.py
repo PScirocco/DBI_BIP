@@ -16,18 +16,54 @@ matplotlib.use("QtAgg")
 # matplotlib の日本語ラベルが豆腐にならないように（Windows 標準フォント）
 matplotlib.rcParams["font.family"] = ["Yu Gothic", "Meiryo", "MS Gothic", "sans-serif"]
 matplotlib.rcParams["axes.unicode_minus"] = False
+# 明るいグレー基調に合わせる
+matplotlib.rcParams["figure.facecolor"] = "#f2f3f5"
+matplotlib.rcParams["axes.facecolor"] = "#ffffff"
+matplotlib.rcParams["savefig.facecolor"] = "#f2f3f5"
+for _k in ("text.color", "axes.labelcolor", "axes.titlecolor", "xtick.color", "ytick.color"):
+    matplotlib.rcParams[_k] = "#20242a"
+matplotlib.rcParams["axes.edgecolor"] = "#9aa0a6"
 
 from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtGui import QActionGroup, QColor, QPalette
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QMessageBox, QTabWidget,
 )
 
+
+def apply_light_theme(app: QApplication) -> None:
+    """ OS のダークテーマに関わらず、明るいグレー基調に固定する。 """
+    app.setStyle("Fusion")
+    bg, base, alt = QColor("#e9eaec"), QColor("#f7f8f9"), QColor("#eef0f2")
+    text, dis, hl = QColor("#20242a"), QColor("#9aa0a6"), QColor("#3d6fb4")
+    pal = QPalette()
+    pal.setColor(QPalette.ColorRole.Window, bg)
+    pal.setColor(QPalette.ColorRole.WindowText, text)
+    pal.setColor(QPalette.ColorRole.Base, base)
+    pal.setColor(QPalette.ColorRole.AlternateBase, alt)
+    pal.setColor(QPalette.ColorRole.Text, text)
+    pal.setColor(QPalette.ColorRole.Button, bg)
+    pal.setColor(QPalette.ColorRole.ButtonText, text)
+    pal.setColor(QPalette.ColorRole.ToolTipBase, base)
+    pal.setColor(QPalette.ColorRole.ToolTipText, text)
+    pal.setColor(QPalette.ColorRole.PlaceholderText, dis)
+    pal.setColor(QPalette.ColorRole.Highlight, hl)
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+    for role in (QPalette.ColorRole.WindowText, QPalette.ColorRole.Text,
+                 QPalette.ColorRole.ButtonText):
+        pal.setColor(QPalette.ColorGroup.Disabled, role, dis)
+    app.setPalette(pal)
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import i18n
+from i18n import on_change, set_lang, t
 from sample import build_sample_steps, load_existing_results, sample_available
 from sim_runner import run_step
 from state import AppState
 from tabs import FoldersTab, ResultsTab, RunTab, StepConfigTab, StepsTab
+
+_TAB_KEYS = ["tab.folders", "tab.steps", "tab.config", "tab.run", "tab.results"]
 
 
 class SimWorker(QThread):
@@ -52,7 +88,7 @@ class SimWorker(QThread):
             for si, (step, idx, prev_idx) in enumerate(self.jobs):
                 if self.isInterruptionRequested():
                     break
-                self.sig_step.emit(si, n, step.name)
+                self.sig_step.emit(si, n, step.display_name())
 
                 def prog(f, ft, bgr, _si=si):
                     if f == ft or f % 10 == 0:
@@ -75,7 +111,6 @@ class SimWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("OLED 劣化シミュレータ (proto)")
         self.resize(1180, 820)
 
         self.state = AppState()
@@ -90,35 +125,64 @@ class MainWindow(QMainWindow):
         self.config_tab = StepConfigTab(self)
         self.run_tab = RunTab(self)
         self.results_tab = ResultsTab(self)
-        self.tabs.addTab(self.folders_tab, "① フォルダ設定")
-        self.tabs.addTab(self.steps_tab, "② 実行ステップ")
-        self.tabs.addTab(self.config_tab, "③ ステップ設定")
-        self.tabs.addTab(self.run_tab, "④ 実行")
-        self.tabs.addTab(self.results_tab, "⑤ 結果")
+        for w in (self.folders_tab, self.steps_tab, self.config_tab,
+                  self.run_tab, self.results_tab):
+            self.tabs.addTab(w, "")
         self.setCentralWidget(self.tabs)
-        self.statusBar().showMessage("準備完了")
 
-        m = self.menuBar().addMenu("デモ")
-        m.addAction("サンプルステップ + 既存結果を読み込む").triggered.connect(
-            lambda: self.load_demo())
-        m.addAction("結果をクリア").triggered.connect(self.clear_results)
-
+        self._build_menus()
         self._elapsed = QTimer(self)
         self._elapsed.setInterval(200)
         self._elapsed.timeout.connect(lambda: self.run_tab.on_elapsed(time.time() - self._t0))
 
+        self.retranslate_all()
+        on_change(self.retranslate_all)
+
         self.steps_changed()
         self.load_demo(startup=True)
+        self.statusBar().showMessage(t("status.ready"))
+
+    def _build_menus(self):
+        self.menu_demo = self.menuBar().addMenu("")
+        self.act_demo_load = self.menu_demo.addAction("")
+        self.act_demo_load.triggered.connect(lambda: self.load_demo())
+        self.act_demo_clear = self.menu_demo.addAction("")
+        self.act_demo_clear.triggered.connect(self.clear_results)
+
+        self.menu_lang = self.menuBar().addMenu("")
+        grp = QActionGroup(self)
+        grp.setExclusive(True)
+        self.act_lang_ja = self.menu_lang.addAction("")
+        self.act_lang_en = self.menu_lang.addAction("")
+        for a, code in ((self.act_lang_ja, "ja"), (self.act_lang_en, "en")):
+            a.setCheckable(True)
+            grp.addAction(a)
+            a.triggered.connect(lambda _=False, c=code: set_lang(c))
+        self.act_lang_ja.setChecked(i18n.LANG == "ja")
+        self.act_lang_en.setChecked(i18n.LANG == "en")
+
+    def retranslate_all(self):
+        self.setWindowTitle(t("app.title"))
+        for i, key in enumerate(_TAB_KEYS):
+            self.tabs.setTabText(i, t(key))
+        self.menu_demo.setTitle(t("menu.demo"))
+        self.act_demo_load.setText(t("menu.demo.load"))
+        self.act_demo_clear.setText(t("menu.demo.clear"))
+        self.menu_lang.setTitle(t("menu.lang"))
+        self.act_lang_ja.setText(t("menu.lang.ja"))
+        self.act_lang_en.setText(t("menu.lang.en"))
+        self.act_lang_ja.setChecked(i18n.LANG == "ja")
+        self.act_lang_en.setChecked(i18n.LANG == "en")
+        for w in (self.folders_tab, self.steps_tab, self.config_tab,
+                  self.run_tab, self.results_tab):
+            w.retranslate()
 
     # ---- demo / sample data ----
     def load_demo(self, startup: bool = False):
         folders = self.state.folders
         if not sample_available(folders):
             if not startup:
-                QMessageBox.information(
-                    self, "デモ",
-                    "サンプル入力（source/dbi_common/mov_001_480x270.mp4 など）が見つかりません。\n"
-                    "①フォルダ設定で入力画像フォルダを確認してください。")
+                QMessageBox.information(self, t("demo.na.title"), t("demo.na.msg"))
             return
 
         if not self.state.steps:
@@ -128,7 +192,7 @@ class MainWindow(QMainWindow):
         for idx, res in load_existing_results(folders).items():
             self.results[idx] = res
             if idx - 1 < len(self.state.steps):
-                self.state.steps[idx - 1].status = "実行済（既存出力）"
+                self.state.steps[idx - 1].status = "done_existing"
             self.results_tab.add_result(idx)
             loaded += 1
 
@@ -137,15 +201,15 @@ class MainWindow(QMainWindow):
         if self.current_row is not None:
             self.steps_tab._select_row(0)
         self.statusBar().showMessage(
-            f"サンプル {len(self.state.steps)} ステップ / 既存結果 {loaded} 件を読み込みました", 5000)
+            t("status.demo_loaded", steps=len(self.state.steps), res=loaded), 5000)
 
     def clear_results(self):
         self.results.clear()
         self.results_tab.clear_results()
         for s in self.state.steps:
-            s.status = "未実行"
+            s.status = "pending"
         self.steps_tab.refresh()
-        self.statusBar().showMessage("結果をクリアしました", 3000)
+        self.statusBar().showMessage(t("status.results_cleared"), 3000)
 
     # ---- cross-tab coordination ----
     def folders_changed(self):
@@ -176,14 +240,14 @@ class MainWindow(QMainWindow):
             return
         steps = self.state.steps
         if not steps:
-            QMessageBox.information(self, "実行", "ステップがありません。")
+            QMessageBox.information(self, t("run.msg.title"), t("run.msg.nosteps"))
             return
 
         if mode == "all":
             rows = list(range(len(steps)))
         else:
             if self.current_row is None:
-                QMessageBox.information(self, "実行", "②実行ステップでステップを選択してください。")
+                QMessageBox.information(self, t("run.msg.title"), t("run.msg.noselect"))
                 return
             rows = [self.current_row]
 
@@ -191,8 +255,7 @@ class MainWindow(QMainWindow):
         for r in rows:
             s = steps[r]
             if not s.input_image or not s.heatmap:
-                QMessageBox.warning(self, "実行",
-                                    f"ステップ #{r + 1} の入力画像 / ヒートマップが未設定です。")
+                QMessageBox.warning(self, t("run.msg.title"), t("run.msg.unset", n=r + 1))
                 return
             prev_idx = r if r >= 1 else None
             jobs.append((s, r + 1, prev_idx))
@@ -215,18 +278,18 @@ class MainWindow(QMainWindow):
     def abort_run(self):
         if self.worker is not None:
             self.worker.requestInterruption()
-            self.run_tab.append_log("中断要求…（現在のフレーム終了後に停止）")
+            self.run_tab.append_log(t("run.abort_req"))
 
     def _on_step(self, si, n, name):
         self.run_tab.on_step(si, n, name)
         if si < len(self.state.steps):
-            self.state.steps[si].status = "実行中"
+            self.state.steps[si].status = "running"
             self.steps_tab.refresh()
 
     def _on_step_done(self, idx, res):
         self.results[idx] = res
         if idx - 1 < len(self.state.steps):
-            self.state.steps[idx - 1].status = "実行済"
+            self.state.steps[idx - 1].status = "done"
         self.steps_tab.refresh()
         self.results_tab.add_result(idx)
 
@@ -239,16 +302,18 @@ class MainWindow(QMainWindow):
     def _on_finished(self, aborted):
         self._cleanup_worker()
         self.run_tab.on_finished(aborted)
-        self.statusBar().showMessage("中断" if aborted else "実行完了", 4000)
+        self.statusBar().showMessage(
+            t("status.aborted") if aborted else t("status.run_done"), 4000)
 
     def _on_error(self, msg):
         self._cleanup_worker()
         self.run_tab.on_error(msg)
-        QMessageBox.critical(self, "実行エラー", msg)
+        QMessageBox.critical(self, t("run.err.title"), msg)
 
 
 def main():
     app = QApplication(sys.argv)
+    apply_light_theme(app)
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

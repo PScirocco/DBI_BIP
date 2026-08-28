@@ -32,6 +32,7 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 `prototype/` に PySide6 の GUI プロトタイプ（**UX検証用・使い捨て**、IP設計者レビュー用）。
 5タブ（フォルダ設定 / 実行ステップ / ステップ設定 / 実行 / 結果）。起動時に
 `eval_exec.bat` 相当の4ステップと `dbi_output/` の既存結果を自動読み込み。
+JP/EN 切替あり（メニュー「言語」、文字列カタログは `prototype/i18n.py`）。明るいグレー基調に固定。
 劣化計算は `source/` の `temp_update_stat_and_burn_img()` を import して利用（`source/` 無改変）。
 詳細は `prototype/README.md`。
 

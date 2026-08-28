@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 
 import imio
+from i18n import t
 from state import SOURCE_DIR
 
 if str(SOURCE_DIR) not in sys.path:
@@ -90,9 +91,9 @@ def run_step(step, folders, idx, prev_idx=None,
     path_img = in_dir / step.input_image
     path_ht = ht_dir / step.heatmap
     if not path_img.exists():
-        raise FileNotFoundError(f"入力画像が見つかりません: {path_img}")
+        raise FileNotFoundError(t("sim.err.input_missing", p=path_img))
     if not path_ht.exists():
-        raise FileNotFoundError(f"ヒートマップが見つかりません: {path_ht}")
+        raise FileNotFoundError(t("sim.err.heatmap_missing", p=path_ht))
 
     degparam_mm_dict = _mm_dict(step.model)
     simconf_dict = {k: float(v) for k, v in step.simconf.items()}
@@ -116,32 +117,31 @@ def run_step(step, folders, idx, prev_idx=None,
         img0 = imio.imread(path_img)
         ht0 = imio.imread(path_ht)
         if img0 is None or ht0 is None:
-            raise RuntimeError(f"画像を読めません: {path_img if img0 is None else path_ht}")
+            raise RuntimeError(t("sim.err.png_read", p=path_img if img0 is None else path_ht))
         height, width = img0.shape[:2]
         fps, frame_num, trsh = 0.0, 1, 0.0
 
     # ---- 初期ストレス（Aging 再開 or ゼロ） ----
     if step.init_stress == "prev":
         if prev_idx is None:
-            raise ValueError("前ステップがありません（初期ストレス=前ステップ継承）")
+            raise ValueError(t("sim.err.no_prev"))
         stat_r = _load_map(out_dir / f"{prev_idx}_{FILE_OUT_STAT}_r.csv")
         stat_g = _load_map(out_dir / f"{prev_idx}_{FILE_OUT_STAT}_g.csv")
         stat_b = _load_map(out_dir / f"{prev_idx}_{FILE_OUT_STAT}_b.csv")
-        log(f"ストレス継承: step #{prev_idx} の stat_*.csv")
+        log(t("sim.log.inherit_prev", idx=prev_idx))
     elif step.init_stress == "file":
         stat_r = _load_map(step.stress_r)
         stat_g = _load_map(step.stress_g)
         stat_b = _load_map(step.stress_b)
-        log("ストレス継承: 指定ファイル")
+        log(t("sim.log.inherit_file"))
     else:
         stat_r = np.zeros((height, width), dtype=float)
         stat_g = np.zeros((height, width), dtype=float)
         stat_b = np.zeros((height, width), dtype=float)
-        log("ストレス初期値: ゼロ")
+        log(t("sim.log.zero"))
 
     if stat_r.shape != (height, width):
-        raise ValueError(
-            f"継承ストレスのサイズ {stat_r.shape} が入力画像 {(height, width)} と一致しません")
+        raise ValueError(t("sim.err.shape", got=stat_r.shape, exp=(height, width)))
 
     temp = np.full((height, width), TMP_L, dtype=float)
 
@@ -154,12 +154,12 @@ def run_step(step, folders, idx, prev_idx=None,
         try:
             for i in range(frame_num):
                 if abort_cb and abort_cb():
-                    log(f"中断（{i}/{frame_num} フレームで停止）")
+                    log(t("sim.log.abort", i=i, n=frame_num))
                     break
                 ok1, img = cap_img.read()
                 ok2, ht = cap_ht.read()
                 if not ok1 or not ok2:
-                    log(f"フレーム読み込み終了（{i}/{frame_num}）")
+                    log(t("sim.log.frame_end", i=i, n=frame_num))
                     break
                 rc = temp_update_stat_and_burn_img(
                     trsh, img, ht, bc_dict, degparam_mm_dict,
@@ -167,7 +167,7 @@ def run_step(step, folders, idx, prev_idx=None,
                     stat_r=stat_r, stat_g=stat_g, stat_b=stat_b,
                 )
                 if rc != 0:
-                    raise RuntimeError("劣化計算でエラー（temp_update_stat_and_burn_img rtn=-1）")
+                    raise RuntimeError(t("sim.err.calc"))
                 temp[:] = (ht[:, :, 0] / 255) * (TMP_H - TMP_L) + TMP_L
                 writer.write(img)
                 if progress_cb:
@@ -176,7 +176,7 @@ def run_step(step, folders, idx, prev_idx=None,
             cap_img.release()
             cap_ht.release()
             writer.release()
-        log(f"映像処理 {time.time() - t0:.1f}s")
+        log(t("sim.log.video_time", t=time.time() - t0))
     else:
         img, ht = img0, ht0
         rc = temp_update_stat_and_burn_img(
@@ -185,7 +185,7 @@ def run_step(step, folders, idx, prev_idx=None,
             stat_r=stat_r, stat_g=stat_g, stat_b=stat_b,
         )
         if rc != 0:
-            raise RuntimeError("劣化計算でエラー（temp_update_stat_and_burn_img rtn=-1）")
+            raise RuntimeError(t("sim.err.calc"))
         temp[:] = (ht[:, :, 0] / 255) * (TMP_H - TMP_L) + TMP_L
         out_img_path = out_dir / f"{idx}_{FILE_OUT_IMG}.png"
         imio.imwrite(out_img_path, img)
@@ -211,8 +211,7 @@ def run_step(step, folders, idx, prev_idx=None,
         deg_paths[c], stat_paths[c] = str(dp), str(sp)
 
     means = {c: float(np.nanmean(deg[c])) for c in "rgb"}
-    log(f"出力: {idx}_out_img / {idx}_deg_* / {idx}_stat_*  "
-        f"(平均劣化率 R={means['r']:.3f} G={means['g']:.3f} B={means['b']:.3f})")
+    log(t("sim.log.output", idx=idx, r=means["r"], g=means["g"], b=means["b"]))
 
     return StepResult(idx, str(out_img_path), deg_paths, stat_paths,
                       (width, height), is_mov, means)

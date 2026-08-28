@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from i18n import t
+
 PROTO_DIR = Path(__file__).resolve().parent
 REPO_DIR = PROTO_DIR.parent
 SOURCE_DIR = REPO_DIR / "source"
@@ -19,14 +21,11 @@ DEFAULT_FOLDERS: dict[str, Path] = {
     "simconf":     SOURCE_DIR / "dbi_conf",
     "output":      SOURCE_DIR / "dbi_output",
 }
-FOLDER_LABELS: dict[str, str] = {
-    "input_image": "入力画像フォルダ",
-    "heatmap":     "ヒートマップフォルダ",
-    "bcset":       "BC設定フォルダ",
-    "model":       "モデルパラメータフォルダ",
-    "simconf":     "Sim条件フォルダ",
-    "output":      "出力フォルダ",
-}
+FOLDER_KEYS = ["input_image", "heatmap", "bcset", "model", "simconf", "output"]
+
+
+def folder_label(key: str) -> str:
+    return t(f"folder.{key}")
 
 # CSV が読めなかった場合のフォールバック（dbi_conf の現行値）
 DEFAULT_MODEL: dict[str, list[float]] = {
@@ -47,7 +46,8 @@ MODEL_ROWS = ["N", "K0", "Q", "B0", "A"]
 
 @dataclass
 class Step:
-    name: str = "新規ステップ"
+    name: str = ""                     # ユーザー入力の名前（空なら name_key / 既定）
+    name_key: str = ""                 # サンプル用の i18n キー（name 未設定時に使う）
     input_image: str = ""              # ファイル名のみ（フォルダは FolderConfig 側）
     heatmap: str = ""
     init_stress: str = "none"          # none | prev | file
@@ -56,7 +56,7 @@ class Step:
     stress_b: str = ""
     model: dict = field(default_factory=lambda: {k: list(v) for k, v in DEFAULT_MODEL.items()})
     simconf: dict = field(default_factory=lambda: dict(DEFAULT_SIMCONF))
-    status: str = "未実行"
+    status: str = "pending"            # pending | running | done | done_existing
 
     @property
     def kind(self) -> str:
@@ -69,7 +69,14 @@ class Step:
 
     @property
     def kind_label(self) -> str:
-        return {"aging": "Aging", "pq": "PQ評価", "unknown": "―"}[self.kind]
+        return t(f"kind.{self.kind}")
+
+    def display_name(self) -> str:
+        if self.name:
+            return self.name
+        if self.name_key:
+            return t(self.name_key)
+        return t("steps.new")
 
 
 @dataclass
