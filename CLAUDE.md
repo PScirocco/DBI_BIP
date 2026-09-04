@@ -52,6 +52,7 @@ JP/EN 切替（`prototype/i18n.py`）、明るいグレー基調。
 ## 詳細ドキュメント
 
 - `docs/GUI仕様.md` — 本番GUIの確定仕様（Config構造・命名規則・タブ別仕様・状態遷移）。9月実装フェーズの基準
+- `docs/実装計画.md` — 9月フェーズの実装タスク（T1〜T10、この順で進める）。`prototype/` からの移植可否も記載
 - `docs/progress/` — 進捗報告と IP設計者レビュー記録（`260903_*`）
 - `docs/理解と方針.md` — コードと資料の対応、モデル式の解説、実装ステータス、GUI方針
 - 図解（Artifact, 要ログイン）: https://claude.ai/code/artifact/1d4f42d1-9610-4952-b669-e83fc9571caf
