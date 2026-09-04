@@ -27,14 +27,22 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `AMOLED_Image_sticking_prevention_compensation_v01.pptx`（2018, Matsui） | DBI補正アルゴリズムの理論。劣化モデルの根拠 |
 | `Platform Concept for DBI & BIP development.pptx`（2026.07, Matsui & Isobe） | シミュレータ＋DBI/BIP評価プラットフォームの構想 |
 
-## GUI プロトタイプ
+## 現在の状況（2026-09）
 
-`prototype/` に PySide6 の GUI プロトタイプ（**UX検証用・使い捨て**、IP設計者レビュー用）。
-5タブ（フォルダ設定 / 実行ステップ / ステップ設定 / 実行 / 結果）。起動時に
-`eval_exec.bat` 相当の4ステップと `dbi_output/` の既存結果を自動読み込み。
-JP/EN 切替あり（メニュー「言語」、文字列カタログは `prototype/i18n.py`）。明るいグレー基調に固定。
-劣化計算は `source/` の `temp_update_stat_and_burn_img()` を import して利用（`source/` 無改変）。
-詳細は `prototype/README.md`。
+- UX検証プロトタイプ（`prototype/`）は完成、**2026-09-03 に IP設計者レビュー実施済み**。
+- 次フェーズ：レビュー結果を反映した**本番GUIの実装**。確定仕様は `docs/GUI仕様.md`。
+  プロトタイプは破棄し、本番は作り直す。
+- IP設計者のアルゴリズムコア着手は**10月初め**。統合 → 原理確認 → 社内試用 を経て10月末完成予定。
+- 当面先/スコープ外：出力マップの画像フォーマット化＋専用ビューア、CPU並列（画像分割）、
+  DBI/BIP補正実装、実機データ比較・モデル修正。
+- 経緯・スケジュールは `docs/progress/`。
+
+## GUI プロトタイプ（レビュー済み・破棄予定）
+
+`prototype/` … PySide6、5タブ（フォルダ設定 / 実行ステップ / ステップ設定 / 実行 / 結果）。
+起動時に `eval_exec.bat` 相当の4ステップと `dbi_output/` の既存結果を自動読み込み。
+JP/EN 切替（`prototype/i18n.py`）、明るいグレー基調。
+劣化計算は `source/` の `temp_update_stat_and_burn_img()` を import（`source/` 無改変）。詳細は `prototype/README.md`。
 
 - 実行環境: リポジトリ直下に `.venv`（`prototype/requirements.txt`: PySide6/numpy/opencv-python/matplotlib）。
   社給PCの pip は社内ミラー固定のため、インストールは社内ネットワーク接続時に行う。
@@ -43,6 +51,8 @@ JP/EN 切替あり（メニュー「言語」、文字列カタログは `protot
 
 ## 詳細ドキュメント
 
+- `docs/GUI仕様.md` — 本番GUIの確定仕様（Config構造・命名規則・タブ別仕様・状態遷移）。9月実装フェーズの基準
+- `docs/progress/` — 進捗報告と IP設計者レビュー記録（`260903_*`）
 - `docs/理解と方針.md` — コードと資料の対応、モデル式の解説、実装ステータス、GUI方針
 - 図解（Artifact, 要ログイン）: https://claude.ai/code/artifact/1d4f42d1-9610-4952-b669-e83fc9571caf
   （時間×電流の履歴 / Δη₁・Δη₂の2成分分解 / Iref換算 / コード対応）
@@ -65,12 +75,14 @@ stat += Δt · ACCEL_RATIO · lum**N / (K0 · exp(Q / temp))
 deg  = exp( -( stat ** (B0 + A·temp) ) )
 ```
 
-画素ごと・RGB別に計算。`stat`=累積ストレス、`deg`=劣化率。
+画素ごと・RGB別に計算。`stat`=累積ストレス、`deg`=輝度残存率（大きいほど劣化少）。
 `lum**N`=(I/Iref)ⁿ（信号レベル換算）, `K0`≈τ₀·Irefⁿ, `exp(Q/temp)`=温度依存(アレニウス),
 `ACCEL_RATIO`=シミュレーション加速, β=`B0+A·temp`。
+本番GUIの UI 表記は `deg`→「1/劣化率 / inverse degradation」、`stat`→「累積時間 / accumulated time」に変更
+（ファイル名トークンは `deg` / `stat` 維持）。加速込みAging時間 = (フレーム数/fps)×`ACCEL_RATIO`。
 
 ## 環境メモ
 
-- `source/.venv` はベースPythonが不在で壊れている。実行には別途 Python + `opencv-python`, `numpy` が必要。
+- `source/.venv` はベースPythonが不在で壊れている。プロトタイプ用にリポジトリ直下の `.venv` を使用。
 - OpenCVは画素並びが BGR。動画は (w,h)、静止画は (h,w) の順に注意。
-- git 未管理。
+- git 管理下（ブランチ master）。
