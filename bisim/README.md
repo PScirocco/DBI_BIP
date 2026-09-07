@@ -5,8 +5,9 @@
 
 ## 状態
 
-- **フェーズA（T1〜T3）実装済み**: データモデル（`model.py`）＋ ファイル命名規則（`naming.py`）＋ パス（`paths.py`）
-- UI・エンジン・ログは未実装（フェーズB以降）
+- **フェーズA（T1〜T3）実装済み**: データモデル（`model.py`）＋ 命名規則（`naming.py`）＋ パス（`paths.py`）
+- **フェーズB（T4〜T5）実装済み**: 劣化エンジン（`engine.py`）＋ パラメータCSV I/O（`paramio.py`）＋ ログ（`logio.py`）＋ 画像I/O（`imio.py`）
+- UI（5タブ）は未実装（フェーズC以降）
 
 ## セットアップ
 
@@ -32,6 +33,10 @@ python -m pytest bisim/tests   # pytest がある場合
 | `paths.py` | SOURCE_DIR / APP_DIR / LOG_DIR / 既定フォルダ6種 |
 | `model.py` | `Recipe` / `Sequence` / `AppConfig`（JSON, `ensure_ascii=False`） |
 | `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name` |
+| `paramio.py` | model/sim パラメータ CSV の読み書き（CLI版 `degparam_mm.csv` / `simconf.csv` と互換） |
+| `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） |
+| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel` / `StressState` / `RunControl` / `run_recipe` / `run_sequence` / 出力の確定・破棄 |
+| `logio.py` | `Logger`（`_log_BISim/` 日付ローテーション、容量上限、画面表示 listener） |
 | `__main__.py` | エントリ（フェーズCで UI 起動に差し替え） |
 | `selftest.py` | pytest 無しのテストランナー |
-| `tests/` | `test_model.py` / `test_naming.py` |
+| `tests/` | `test_model` / `test_naming` / `test_paramio` / `test_engine` / `test_logio` |
