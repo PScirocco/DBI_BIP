@@ -11,6 +11,8 @@
 - **フェーズD（T8）実装済み**: 中断・停止・再開の状態遷移（仕様 7）。停止時に再開用サイドカー
   `..._resume_YYMMDD-HHMM.json`（`engine.StopState`）を出力。同一起動中は④タブの「停止位置から再開」、
   再起動後はメニュー「停止結果を読み込んで再開…」。再開時は部分動画を連結して連続動画を出力
+- **フェーズE（T9）実装済み**: `packaging/`（PyInstaller spec・ビルドスクリプト・クリーンPC確認手順）。
+  実ビルドは社内ネットワーク接続時に `packaging/build_exe.ps1`。frozen 時は既定出力が実行ファイル横 `bisim_output/`
 
 ## セットアップ
 
@@ -44,4 +46,4 @@ python -m pytest bisim/tests   # pytest がある場合
 | `ui/` | 本番GUI。`theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言はレビュー反映）/ `widgets.py`（ImagePanel, MplCanvas）/ `main_window.py`（MainWindow＋SimWorker）/ `tabs/`（5タブ） |
 | `__main__.py` | エントリ（`python -m bisim`＝GUI起動、`--info`＝データ層確認） |
 | `selftest.py` | pytest 無しのテストランナー |
-| `tests/` | `test_model` / `test_naming` / `test_paramio` / `test_engine` / `test_logio` / `test_ui`（headless） |
+| `tests/` | `test_model` / `test_naming` / `test_paramio` / `test_engine` / `test_logio` / `test_ui`（headless）/ `test_packaging`（spec 静的チェック） |

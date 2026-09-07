@@ -22,6 +22,19 @@ APP_DIR = app_dir()
 LOG_DIR = APP_DIR / "_log_BISim"
 APP_CONFIG_PATH = APP_DIR / "bisim_app.json"
 
+
+def _default_output() -> Path:
+    """既定の出力フォルダ。
+
+    配布（PyInstaller）時は読み取り専用の同梱データではなく、実行ファイル横の
+    書き込み可能な ``bisim_output/`` を既定にする。開発時は従来どおり
+    ``source/dbi_output``。
+    """
+    if getattr(sys, "frozen", False):
+        return APP_DIR / "bisim_output"
+    return SOURCE_DIR / "dbi_output"
+
+
 # 実行シーケンスが持つ 6 種のフォルダ（仕様 3.2 / 5-①）
 FOLDER_KEYS = ["input_image", "heatmap", "bcset", "model", "simconf", "output"]
 
@@ -31,5 +44,5 @@ DEFAULT_FOLDERS: dict[str, Path] = {
     "bcset":       SOURCE_DIR / "dbi_input",
     "model":       SOURCE_DIR / "dbi_conf",
     "simconf":     SOURCE_DIR / "dbi_conf",
-    "output":      SOURCE_DIR / "dbi_output",
+    "output":      _default_output(),
 }

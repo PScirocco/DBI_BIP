@@ -5,3 +5,9 @@
 # bisim ランタイム生成物
 /bisim_app.json
 /_log_BISim/
+/bisim_output/
+
+# PyInstaller（フェーズE）
+/build/
+/dist/
+*.manifest
