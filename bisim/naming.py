@@ -83,6 +83,20 @@ def output_name(sequence_name: str, nn, recipe_name: str, kind: str,
             f".{_ext(ext)}")
 
 
+def stop_state_name(sequence_name: str, nn, recipe_name: str,
+                    ts: datetime | str) -> str:
+    """停止再開用サイドカー名 ``シーケンス名_NN_レシピ名_resume_YYMMDD-HHMM.json``。
+
+    ``resume`` は種別トークンではない（``parse_output`` は None を返す）ので、
+    通常の出力ファイルと取り違えない。
+    """
+    tok = ts if isinstance(ts, str) else timestamp(ts)
+    if not _TS_RE.fullmatch(tok):
+        raise ValueError(f"日時トークンの書式が不正: {tok!r}")
+    return (f"{_join(sanitize_name(sequence_name), _nn(nn), sanitize_name(recipe_name), 'resume', tok)}"
+            f".json")
+
+
 def _split_stem(filename: str) -> tuple[str, str]:
     stem, dot, ext = filename.rpartition(".")
     return (stem, ext) if dot else (filename, "")

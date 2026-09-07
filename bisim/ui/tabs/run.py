@@ -35,6 +35,7 @@ class RunTab(QWidget):
         self.lbl_sel = QLabel(t("run.sel_which"))
         row1.addWidget(self.lbl_sel)
         self.cmb_sel = QComboBox()
+        self.cmb_sel.currentIndexChanged.connect(lambda _=0: self.update_resume_btn())
         row1.addWidget(self.cmb_sel, 1)
         self.b_sel = QPushButton(t("run.btn.sel"))
         self.b_sel.clicked.connect(lambda: self.main.run_steps("selected"))
@@ -46,8 +47,11 @@ class RunTab(QWidget):
         self.b_pause.clicked.connect(self._toggle_pause)
         self.b_stop = QPushButton(t("run.btn.stop"))
         self.b_stop.clicked.connect(self.main.stop_run)
+        self.b_resume_stop = QPushButton(t("run.btn.resume_stop"))
+        self.b_resume_stop.clicked.connect(lambda: self.main.run_steps("resume"))
         row2.addWidget(self.b_pause)
         row2.addWidget(self.b_stop)
+        row2.addWidget(self.b_resume_stop)
         row2.addStretch(1)
         lay.addLayout(row2)
 
@@ -80,6 +84,12 @@ class RunTab(QWidget):
         if 0 <= cur < self.cmb_sel.count():
             self.cmb_sel.setCurrentIndex(cur)
         self.cmb_sel.blockSignals(False)
+        self.update_resume_btn()
+
+    def update_resume_btn(self):
+        if self._running or getattr(self.main, "run_tab", None) is not self:
+            return   # MainWindow がまだ RunTab を保持していない（初期化中）
+        self.b_resume_stop.setEnabled(self.main.resumable_nn_for_selected() is not None)
 
     def selected_index(self) -> int | None:
         i = self.cmb_sel.currentIndex()
@@ -96,6 +106,10 @@ class RunTab(QWidget):
         self.b_pause.setEnabled(on)
         self.b_stop.setEnabled(on)
         self.b_pause.setText(t("run.btn.pause"))
+        if on:
+            self.b_resume_stop.setEnabled(False)
+        else:
+            self.update_resume_btn()
 
     def _toggle_pause(self):
         if not self._running:
@@ -157,6 +171,7 @@ class RunTab(QWidget):
         self.lbl_sel.setText(t("run.sel_which"))
         self.b_pause.setText(t("run.btn.resume") if self._paused else t("run.btn.pause"))
         self.b_stop.setText(t("run.btn.stop"))
+        self.b_resume_stop.setText(t("run.btn.resume_stop"))
         self.preview.set_title(t("run.preview"))
         if not self._running:
             self.lbl_step.setText(t("run.idle"))

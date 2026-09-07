@@ -53,7 +53,7 @@ class SimWorker(QThread):
     sig_error = Signal(str)
 
     def __init__(self, sequence: Sequence, model, control, logger,
-                 only_index=None, max_frames=None):
+                 only_index=None, max_frames=None, resume=None):
         super().__init__()
         self.sequence = sequence
         self.model = model
@@ -61,6 +61,7 @@ class SimWorker(QThread):
         self.logger = logger
         self.only_index = only_index
         self.max_frames = max_frames
+        self.resume = resume
         self.stopped_result: engine.RunResult | None = None
         self._cum_done = 0.0
         self._dt_accel = 0.0
@@ -91,7 +92,7 @@ class SimWorker(QThread):
             result=res, folders=self.sequence.folders,
             sequence_name=self.sequence.sequence_name, model=self.model,
             model_param=self.sequence.recipes[int(res.nn) - 1].model_param,
-            log=self.logger)
+            recipe=self.sequence.recipes[int(res.nn) - 1], log=self.logger)
         entry = ResultEntry(nn=int(res.nn), recipe_name=res.recipe_name,
                             is_movie=res.is_movie, outputs=outputs)
         self.sig_step_done.emit(entry.nn, entry)
@@ -103,7 +104,7 @@ class SimWorker(QThread):
                 sequence=self.sequence, model=self.model,
                 only_index=self.only_index, control=self.control,
                 progress_cb=self._progress, step_done_cb=self._step_done,
-                log=self.logger, max_frames=self.max_frames)
+                log=self.logger, max_frames=self.max_frames, resume=self.resume)
         except Exception as e:  # noqa: BLE001  (UI にまとめて表示)
             self.sig_error.emit(f"{type(e).__name__}: {e}")
             return
@@ -126,12 +127,15 @@ class MainWindow(QMainWindow):
         self._seq_path: Path | None = None
         self.results: dict[int, ResultEntry] = {}
         self.current_row: int | None = None
+        self._stopped_states: dict[int, engine.StopState] = {}   # nn -> 停止状態（再開用）
 
         self.model = None
         self.control = engine.RunControl()
         self.worker: SimWorker | None = None
         self._max_frames = None
         self._t0 = 0.0
+        self._paused_total = 0.0
+        self._pause_t0: float | None = None
 
         self.tabs = QTabWidget()
         self.folders_tab = FoldersTab(self)
@@ -148,7 +152,7 @@ class MainWindow(QMainWindow):
         self._elapsed = QTimer(self)
         self._elapsed.setInterval(200)
         self._elapsed.timeout.connect(
-            lambda: self.run_tab.on_calc_time(time.time() - self._t0))
+            lambda: self.run_tab.on_calc_time(self._calc_elapsed()))
 
         self.sig_log.connect(self.run_tab.append_log)
         self.logger.add_listener(self.sig_log.emit)
@@ -173,6 +177,9 @@ class MainWindow(QMainWindow):
         self.act_recipe_load.triggered.connect(self.load_recipe)
         self.act_recipe_save = self.menu_file.addAction("")
         self.act_recipe_save.triggered.connect(self.save_recipe)
+        self.menu_file.addSeparator()
+        self.act_resume_load = self.menu_file.addAction("")
+        self.act_resume_load.triggered.connect(self.load_stopped_and_resume)
 
         self.menu_lang = self.menuBar().addMenu("")
         grp = QActionGroup(self)
@@ -205,6 +212,7 @@ class MainWindow(QMainWindow):
         self.act_save_as.setText(t("menu.seq.save_as"))
         self.act_recipe_load.setText(t("menu.recipe.load"))
         self.act_recipe_save.setText(t("menu.recipe.save"))
+        self.act_resume_load.setText(t("menu.resume.load"))
         self.menu_lang.setTitle(t("menu.lang"))
         self.act_lang_ja.setText(t("menu.lang.ja"))
         self.act_lang_en.setText(t("menu.lang.en"))
@@ -228,6 +236,7 @@ class MainWindow(QMainWindow):
         self.sequence = seq
         self._seq_path = Path(path)
         self.results.clear()
+        self._stopped_states.clear()
         self.results_tab.clear_results()
         self.current_row = 0 if seq.recipes else None
         self.folders_changed()
@@ -335,6 +344,32 @@ class MainWindow(QMainWindow):
             return False
         return True
 
+    def _calc_elapsed(self) -> float:
+        """一時停止中の時間を除いた実PC計算時間。"""
+        now = time.time()
+        paused = self._paused_total + (now - self._pause_t0 if self._pause_t0 else 0.0)
+        return now - self._t0 - paused
+
+    def resumable_nn_for_selected(self) -> int | None:
+        """④の選択ステップに再開できる停止結果があれば NN を返す。"""
+        i = self.run_tab.selected_index()
+        if i is None:
+            return None
+        st = self._stopped_states.get(i + 1)
+        return i + 1 if (st is not None and st.is_movie) else None
+
+    def _build_resume_plan(self, st: engine.StopState):
+        out = Path(self.sequence.folders["output"])
+        try:
+            state = engine.StressState.load(*(out / st.stat_files[c] for c in "rgb"))
+        except (OSError, KeyError, ValueError) as e:
+            return None, str(e)
+        video = out / st.movie_file if st.movie_file else None
+        if video is not None and not video.exists():
+            video = None
+        return engine.ResumePlan(state=state, frames_done=st.frames_done,
+                                 aging_seconds=st.aging_seconds, video=video), None
+
     def run_steps(self, mode: str):
         if self.worker is not None:
             return
@@ -342,7 +377,25 @@ class MainWindow(QMainWindow):
         if not rs:
             QMessageBox.information(self, t("run.msg.title"), t("run.msg.nosteps"))
             return
-        if mode == "selected":
+        resume_plan = None
+        if mode == "resume":
+            only = self.run_tab.selected_index()
+            st = self._stopped_states.get(only + 1) if only is not None else None
+            if st is None:
+                QMessageBox.information(self, t("run.resume.title"), t("run.msg.no_resume"))
+                return
+            resume_plan, err = self._build_resume_plan(st)
+            if err:
+                QMessageBox.warning(self, t("run.resume.title"), err)
+                return
+            ans = QMessageBox.question(
+                self, t("run.resume.title"),
+                t("run.resume.msg", name=st.recipe_name, f=st.frames_done,
+                  ft=st.frames_total, aging=engine.format_aging(st.aging_seconds)))
+            if ans != QMessageBox.StandardButton.Yes:
+                return
+            check = [only]
+        elif mode == "selected":
             only = self.run_tab.selected_index()
             if only is None:
                 QMessageBox.information(self, t("run.msg.title"), t("run.msg.nosteps"))
@@ -364,10 +417,16 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.run_tab)
         self.run_tab.set_running(True)
         self._t0 = time.time()
+        self._paused_total = 0.0
+        self._pause_t0 = None
         self._elapsed.start()
+        if mode == "resume":
+            self.logger.action(t("run.log.resume", name=rs[check[0]].recipe_name,
+                                 f=resume_plan.frames_done))
 
         self.worker = SimWorker(self.sequence, self.model, self.control, self.logger,
-                                only_index=only, max_frames=self._max_frames)
+                                only_index=only, max_frames=self._max_frames,
+                                resume=resume_plan)
         self.worker.sig_started.connect(self.run_tab.on_run_started)
         self.worker.sig_step.connect(self._on_step)
         self.worker.sig_progress.connect(self.run_tab.on_progress)
@@ -379,10 +438,15 @@ class MainWindow(QMainWindow):
 
     def pause_run(self):
         self.control.request_pause()
+        if self._pause_t0 is None:
+            self._pause_t0 = time.time()
         self.logger.action("中断（メモリ保持・出力なし）")
 
     def resume_run(self):
         self.control.request_resume()
+        if self._pause_t0 is not None:
+            self._paused_total += time.time() - self._pause_t0
+            self._pause_t0 = None
         self.logger.action("再開")
 
     def stop_run(self):
@@ -416,36 +480,80 @@ class MainWindow(QMainWindow):
 
     def _on_finished(self, stopped: bool):
         self._cleanup_worker()
+        saved = None
         if stopped and self.worker is not None and self.worker.stopped_result is not None:
-            self._handle_stopped(self.worker.stopped_result)
+            saved = self._handle_stopped(self.worker.stopped_result)
         self.worker = None
         self.run_tab.on_finished(stopped)
-        self.statusBar().showMessage(
-            t("status.stopped") if stopped else t("status.run_done"), 4000)
+        self.run_tab.update_resume_btn()
+        if stopped:
+            self.statusBar().showMessage(
+                t("status.stopped") if saved else t("status.stopped_discard"), 5000)
+        else:
+            self.statusBar().showMessage(t("status.run_done"), 4000)
 
-    def _handle_stopped(self, res: engine.RunResult):
+    def _handle_stopped(self, res: engine.RunResult) -> bool:
+        """停止結果を保存要否ダイアログにかける。保存したら True。"""
         nn = int(res.nn)
-        if 0 <= nn - 1 < len(self.sequence.recipes):
-            set_recipe_status(self.sequence.recipes[nn - 1], "stopped")
+        recipe = self.sequence.recipes[nn - 1] if 0 <= nn - 1 < len(self.sequence.recipes) else None
+        if recipe is not None:
+            set_recipe_status(recipe, "stopped")
             self.steps_tab.refresh()
         ans = QMessageBox.question(
             self, t("run.save.title"),
-            t("run.save.msg", name=res.recipe_name, f=res.frames_done))
-        if ans == QMessageBox.StandardButton.Yes:
-            ts = datetime.now()
-            outputs = engine.write_recipe_outputs(
-                result=res, folders=self.sequence.folders,
-                sequence_name=self.sequence.sequence_name, model=self.model,
-                model_param=self.sequence.recipes[nn - 1].model_param,
-                stopped_at=ts, log=self.logger)
-            entry = ResultEntry(nn=nn, recipe_name=res.recipe_name,
-                                is_movie=res.is_movie, outputs=outputs,
-                                stopped_at=naming.timestamp(ts))
-            self.results[nn] = entry
-            self.results_tab.add_result(nn)
-        else:
+            t("run.save.msg", name=res.recipe_name, f=res.frames_absolute))
+        if ans != QMessageBox.StandardButton.Yes:
             engine.discard_recipe_outputs(res)
             self.logger.action(f"{self.sequence.sequence_name}_{res.nn}_{res.recipe_name} 停止（破棄）")
+            return False
+        ts = datetime.now()
+        outputs = engine.write_recipe_outputs(
+            result=res, folders=self.sequence.folders,
+            sequence_name=self.sequence.sequence_name, model=self.model,
+            model_param=recipe.model_param if recipe else {},
+            recipe=recipe, stopped_at=ts, log=self.logger)
+        self.results[nn] = ResultEntry(nn=nn, recipe_name=res.recipe_name,
+                                       is_movie=res.is_movie, outputs=outputs,
+                                       stopped_at=naming.timestamp(ts))
+        self.results_tab.add_result(nn)
+        if "resume_state" in outputs:
+            try:
+                self._stopped_states[nn] = engine.StopState.load(outputs["resume_state"])
+            except (OSError, ValueError):
+                pass
+        return True
+
+    # ---- resume from a stopped result file (app が再起動された後など) ----
+    def load_stopped_and_resume(self):
+        if self.worker is not None:
+            return
+        start = self.sequence.folders.get("output", "")
+        path, _ = QFileDialog.getOpenFileName(
+            self, t("menu.resume.load"), start, t("dlg.resume_filter"))
+        if not path:
+            return
+        try:
+            st = engine.StopState.load(path)
+        except (OSError, ValueError) as e:
+            QMessageBox.critical(self, t("dlg.err.title"), t("dlg.load_fail", msg=str(e)))
+            return
+        if not st.is_movie:
+            QMessageBox.information(self, t("run.resume.title"), t("dlg.resume_notmovie"))
+            return
+        idxs = [i for i, r in enumerate(self.sequence.recipes)
+                if r.recipe_name == st.recipe_name]
+        if not idxs:
+            QMessageBox.warning(self, t("run.resume.title"),
+                                t("dlg.resume_nomatch", name=st.recipe_name))
+            return
+        idx = idxs[0]
+        self._stopped_states[idx + 1] = st
+        self.current_row = idx
+        self.steps_changed()
+        self.steps_tab._select_row(idx)
+        self.run_tab.cmb_sel.setCurrentIndex(idx)
+        self.statusBar().showMessage(t("status.resumed", name=st.recipe_name), 4000)
+        self.run_steps("resume")
 
     def _on_error(self, msg):
         self._cleanup_worker()

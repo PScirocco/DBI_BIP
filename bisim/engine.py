@@ -165,8 +165,80 @@ class RunResult:
     temp_kelvin: np.ndarray     # 最終フレームの温度マップ（deg 計算用）
     outputs: dict = field(default_factory=dict)
     cumulative_aging_seconds: float = 0.0
+    resumed_from: int = 0          # 停止位置から再開したときの開始フレーム（絶対）
     _tmp_video: Optional[Path] = None
     _img_bgr: Optional[np.ndarray] = None
+
+    @property
+    def frames_absolute(self) -> int:
+        """このレシピで累積処理済みの絶対フレーム数（再開分を含む）。"""
+        return self.resumed_from + self.frames_done
+
+
+# --------------------------------------------------------------------------- #
+#  停止状態（後で読み込んで継続するためのサイドカー。仕様 7）
+# --------------------------------------------------------------------------- #
+@dataclass
+class StopState:
+    sequence_name: str
+    nn: str
+    recipe_name: str
+    input_image: str
+    heatmap: str
+    is_movie: bool
+    frames_done: int              # 停止までに処理した絶対フレーム数
+    frames_total: int
+    aging_seconds: float          # 停止までの加速込み Aging 時間
+    timestamp: str                # YYMMDD-HHMM（保存名と一致）
+    stat_files: dict = field(default_factory=dict)   # {"r":name,"g":..,"b":..}（出力フォルダ内）
+    movie_file: str = ""          # 部分動画の出力名（あれば）
+
+    def to_dict(self) -> dict:
+        return {
+            "sequence_name": self.sequence_name, "nn": self.nn,
+            "recipe_name": self.recipe_name, "input_image": self.input_image,
+            "heatmap": self.heatmap, "is_movie": self.is_movie,
+            "frames_done": self.frames_done, "frames_total": self.frames_total,
+            "aging_seconds": self.aging_seconds, "timestamp": self.timestamp,
+            "stat_files": dict(self.stat_files), "movie_file": self.movie_file,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "StopState":
+        return cls(
+            sequence_name=str(d.get("sequence_name", "")),
+            nn=str(d.get("nn", "")),
+            recipe_name=str(d.get("recipe_name", "")),
+            input_image=str(d.get("input_image", "")),
+            heatmap=str(d.get("heatmap", "")),
+            is_movie=bool(d.get("is_movie", False)),
+            frames_done=int(d.get("frames_done", 0)),
+            frames_total=int(d.get("frames_total", 0)),
+            aging_seconds=float(d.get("aging_seconds", 0.0)),
+            timestamp=str(d.get("timestamp", "")),
+            stat_files=dict(d.get("stat_files") or {}),
+            movie_file=str(d.get("movie_file", "")),
+        )
+
+    def save(self, path) -> None:
+        import json
+        Path(path).write_text(
+            json.dumps(self.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    @classmethod
+    def load(cls, path) -> "StopState":
+        import json
+        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
+@dataclass(eq=False)
+class ResumePlan:
+    """停止結果からの再開に必要な情報（``run_sequence`` の先頭ステップに適用）。"""
+
+    state: "StressState"
+    frames_done: int
+    aging_seconds: float = 0.0
+    video: Optional[Path] = None      # 継続元の部分動画（連続出力のため先頭に連結）
 
 
 def format_aging(seconds: float) -> str:
@@ -189,6 +261,8 @@ def run_recipe(
     model: DegradationModel,
     initial_state: Optional[StressState] = None,
     resume_from: int = 0,
+    resume_video: Optional[Path] = None,      # 停止位置から再開時、先頭に連結する部分動画
+    resume_aging_seconds: float = 0.0,        # 停止までの加速込み Aging 時間（積み増し）
     max_frames: Optional[int] = None,
     control: Optional[RunControl] = None,
     progress_cb: Optional[Callable] = None,   # (done:int, total:int, preview_bgr|None)
@@ -239,11 +313,12 @@ def run_recipe(
         state.require_shape(height, width)
 
     last_temp = np.full((height, width), tmp_l_k, dtype=float)
-    aging_seconds = 0.0
+    aging_seconds = float(resume_aging_seconds)
     frames_done = 0
     stopped = False
     img_last = None
     tmp_video: Optional[Path] = None
+    start = max(resume_from, 0) if is_movie else 0
 
     def _temp(ht):
         return (ht[:, :, 0] / 255.0) * (tmp_h_k - tmp_l_k) + tmp_l_k
@@ -254,9 +329,23 @@ def run_recipe(
         os.close(_fd)                                          # mkstemp のハンドルを閉じる（Windowsでロック解除）
         tmp_video = Path(_tmp)
         writer = cv2.VideoWriter(str(tmp_video), fourcc, fps, (width, height))
-        start = max(resume_from, 0)
         end = frames_total if max_frames is None else min(frames_total, start + max_frames)
         if start > 0:
+            # 連続動画にするため、継続元の部分動画から先頭 start フレームを取り込む
+            copied = 0
+            if resume_video is not None and Path(resume_video).exists():
+                rcap = cv2.VideoCapture(str(resume_video))
+                try:
+                    while copied < start:
+                        ok, frm = rcap.read()
+                        if not ok:
+                            break
+                        writer.write(frm)
+                        copied += 1
+                finally:
+                    rcap.release()
+            if log:
+                log.action(f"再開: 先頭 {copied}/{start} フレームを部分動画から連結")
             cap.set(cv2.CAP_PROP_POS_FRAMES, start)
             cap_ht.set(cv2.CAP_PROP_POS_FRAMES, start)
         try:
@@ -297,6 +386,7 @@ def run_recipe(
         recipe_name=recipe.recipe_name, nn=nn, is_movie=is_movie,
         size=(width, height), frames_total=frames_total, frames_done=frames_done,
         aging_seconds=aging_seconds, stopped=stopped, state=state, temp_kelvin=last_temp,
+        resumed_from=start,
     )
     res._tmp_video = tmp_video
     res._img_bgr = None if is_movie else img_last
@@ -314,15 +404,19 @@ def write_recipe_outputs(
     model: DegradationModel,
     model_param: dict,
     stopped_at=None,        # datetime | "YYMMDD-HHMM"（停止保存時のみ）
+    recipe: "Optional[Recipe]" = None,   # 停止サイドカーに入力名を残すため（任意）
     log=None,
 ) -> dict:
     out_dir = Path(folders["output"])
     out_dir.mkdir(parents=True, exist_ok=True)
     seq, nn, rc = sequence_name, result.nn, result.recipe_name
+    ts = None
+    if stopped_at is not None:
+        ts = stopped_at if isinstance(stopped_at, str) else naming.timestamp(stopped_at)
 
     def outp(kind, color=None, ext="csv"):
         return out_dir / naming.output_name(seq, nn, rc, kind, color, ext=ext,
-                                            stopped_at=stopped_at)
+                                            stopped_at=ts)
 
     outputs: dict = {}
 
@@ -344,13 +438,28 @@ def write_recipe_outputs(
         np.savetxt(str(sp), result.state.channel(c), delimiter=",")
         outputs[f"deg_{c}"], outputs[f"stat_{c}"] = dp, sp
 
+    # ---- 停止保存時: 再開用サイドカー（仕様 7）----
+    if ts is not None:
+        state_file = out_dir / naming.stop_state_name(seq, nn, rc, ts)
+        StopState(
+            sequence_name=seq, nn=nn, recipe_name=rc,
+            input_image=(recipe.input_image if recipe else ""),
+            heatmap=(recipe.heatmap if recipe else ""),
+            is_movie=result.is_movie,
+            frames_done=result.frames_absolute, frames_total=result.frames_total,
+            aging_seconds=result.aging_seconds, timestamp=ts,
+            stat_files={c: Path(outputs[f"stat_{c}"]).name for c in "rgb"},
+            movie_file=(Path(outputs["movie"]).name if "movie" in outputs else ""),
+        ).save(state_file)
+        outputs["resume_state"] = state_file
+
     result.outputs = outputs
     if log:
         for p in outputs.values():
             log.io("out", Path(p).name)
         log.action(
             f"{seq}_{nn}_{rc} 出力"
-            + (" [停止保存]" if stopped_at is not None else "")
+            + (" [停止保存]" if ts is not None else "")
             + f" 平均1/劣化率 R={float(np.nanmean(deg['r'])):.3f}"
             f" G={float(np.nanmean(deg['g'])):.3f} B={float(np.nanmean(deg['b'])):.3f}")
     return outputs
@@ -397,6 +506,7 @@ def run_sequence(
     step_done_cb: Optional[Callable] = None,  # (RunResult)
     log=None,
     max_frames: Optional[int] = None,
+    resume: Optional[ResumePlan] = None,      # 先頭ステップを停止位置から再開
 ) -> list:
     control = control or RunControl()
     indices = [only_index] if only_index is not None else list(range(len(sequence.recipes)))
@@ -405,14 +515,22 @@ def run_sequence(
     prev_idx: Optional[int] = None
     prev_state: Optional[StressState] = None
     for pos, idx in enumerate(indices):
+        while control.paused and not control.stopped:
+            time.sleep(0.05)
         if control.stopped:
             break
         recipe = sequence.recipes[idx]
         nn = sequence.recipe_number(idx)
         if log:
             log.action(f"ステップ {pos + 1}/{len(indices)} 開始: {sequence.sequence_name}_{nn}_{recipe.recipe_name}")
+        rf, rv, ras = 0, None, 0.0
+        if pos == 0 and resume is not None:
+            init_state = resume.state
+            rf, rv, ras = resume.frames_done, resume.video, resume.aging_seconds
+            if log:
+                log.action(f"停止位置から再開: フレーム {rf} / Aging {format_aging(ras)}")
         # "prev" は直前ステップの状態をメモリ直結（連続実行時）。単独実行時はディスクから。
-        if recipe.init_stress == "prev" and prev_state is not None and prev_idx == idx - 1:
+        elif recipe.init_stress == "prev" and prev_state is not None and prev_idx == idx - 1:
             init_state = prev_state
             if log:
                 log.action("ストレス継承: 直前ステップ（メモリ）")
@@ -427,6 +545,7 @@ def run_sequence(
             recipe=recipe, folders=sequence.folders,
             sequence_name=sequence.sequence_name, nn=nn, model=model,
             initial_state=init_state, control=control,
+            resume_from=rf, resume_video=rv, resume_aging_seconds=ras,
             progress_cb=_pcb, log=log, max_frames=max_frames,
         )
         cumulative += res.aging_seconds

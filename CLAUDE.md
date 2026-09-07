@@ -32,8 +32,9 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 - UX検証プロトタイプ（`prototype/`）は完成、**2026-09-03 に IP設計者レビュー実施済み**。
 - レビュー結果を反映した**本番GUIを新パッケージ `bisim/` として実装中**（プロトタイプは参照用に残す）。
   確定仕様 `docs/GUI仕様.md`、実装手順 `docs/実装計画.md`（T1〜T10 を フェーズA〜F に区分）。
-- **進捗：フェーズA（T1〜T3 データモデル・命名規則）＋ フェーズB（T4〜T5 エンジン・ログ）実装済み・commit 済み。**
-  次は フェーズC（T6〜T7 UIシェル・5タブ）。
+- **進捗：フェーズA（T1〜T3 データモデル・命名規則）／ B（T4〜T5 エンジン・ログ）／ C（T6〜T7 UIシェル・5タブ）
+  ／ D（T8 中断・停止・再開）実装済み・commit 済み。selftest 46/46。**
+  次は フェーズE（T9 パッケージング＝PyInstaller。IP設計者へ EXE 配布用）。
 - IP設計者のアルゴリズムコア着手は**10月初め**。統合 → 原理確認 → 社内試用 を経て10月末完成予定。
 - 当面先/スコープ外：出力マップの画像フォーマット化＋専用ビューア、CPU並列（画像分割）、
   DBI/BIP補正実装、実機データ比較・モデル修正。
@@ -45,21 +46,22 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 |---|---|---|
 | `paths.py` | SOURCE_DIR / APP_DIR / LOG_DIR / 既定フォルダ6種 | A |
 | `model.py` | `Recipe` / `Sequence` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） | A |
-| `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name`（`_`→`-`） | A |
+| `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name`（`_`→`-`）、`stop_state_name`（`_resume_` サイドカー） | A/D |
 | `paramio.py` | model/sim パラメータ CSV I/O（CLI版 `degparam_mm.csv` / `simconf.csv` と互換） | B |
 | `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） | B |
-| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl`（中断・停止）/ `run_recipe` / `run_sequence` / 出力の確定・破棄 / `format_aging` | B |
+| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `StopState`・`ResumePlan`（停止・再開）/ `run_recipe`（`resume_from`/`resume_video` で連続動画）/ `run_sequence` / 出力の確定・破棄 / `format_aging` | B/D |
 | `logio.py` | `Logger`（`_log_BISim/` 日付ローテーション、容量上限、画面表示 listener） | B |
-| `ui/`（未） | 5タブ、メニュー、テーマ | C |
+| `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ） | C/D |
 
-- 実行：`python -m bisim`（現状はデータ層＋エンジンの確認）／ **テスト：`python -m bisim.selftest`（pytest 不要、36/36 pass）**
+- 実行：`python -m bisim`（GUI 起動）／ `python -m bisim --info`（データ層＋エンジン確認）／ **テスト：`python -m bisim.selftest`（pytest 不要、46/46 pass。UI は `QT_QPA_PLATFORM=offscreen` 推奨）**
 - 依存：`bisim/requirements.txt`（prototype と同じ ＋ pytest）
-- ファイル命名規則：入力 `レシピ名_種別[_色].ext` ／ 出力 `シーケンス名_NN_レシピ名_種別[_色].ext`、停止保存は末尾 `_YYMMDD-HHMM`。色トークンは `deg`/`stat` のみ
+- ファイル命名規則：入力 `レシピ名_種別[_色].ext` ／ 出力 `シーケンス名_NN_レシピ名_種別[_色].ext`、停止保存は末尾 `_YYMMDD-HHMM` ＋ 再開用 `シーケンス名_NN_レシピ名_resume_YYMMDD-HHMM.json`。色トークンは `deg`/`stat` のみ
+- 中断＝メモリ保持・出力なし・計算時間フリーズ。停止＝保存確認→日時付き出力＋`StopState` サイドカー。再開＝④タブのボタン（同一起動中）／メニュー「停止結果を読み込んで再開…」（再起動後）
 
 ## GUI プロトタイプ（レビュー済み・参照用）
 
 `prototype/` … PySide6、5タブ。JP/EN 切替（`prototype/i18n.py`）、明るいグレー基調。
-本番の UI レイアウトの下敷き。`i18n.py` / `widgets.py` / `apply_light_theme` は `bisim/` に移植予定。詳細は `prototype/README.md`。
+本番の UI レイアウトの下敷き。`i18n.py` / `widgets.py` / `apply_light_theme` は `bisim/ui/` に移植済み（文言はレビュー反映）。詳細は `prototype/README.md`。
 
 - 実行環境: リポジトリ直下に `.venv`（`bisim/requirements.txt` = prototype と同内容 ＋ pytest）。
   社給PCの pip は社内ミラー固定のため、インストールは社内ネットワーク接続時に行う。

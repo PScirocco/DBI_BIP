@@ -8,7 +8,9 @@
 - **フェーズA（T1〜T3）実装済み**: データモデル（`model.py`）＋ 命名規則（`naming.py`）＋ パス（`paths.py`）
 - **フェーズB（T4〜T5）実装済み**: 劣化エンジン（`engine.py`）＋ パラメータCSV I/O（`paramio.py`）＋ ログ（`logio.py`）＋ 画像I/O（`imio.py`）
 - **フェーズC（T6〜T7）実装済み**: 本番GUI（`ui/`。PySide6、5タブ）。`python -m bisim` で起動
-- UI の中断・停止・再開の完全な状態遷移（T8）はフェーズD
+- **フェーズD（T8）実装済み**: 中断・停止・再開の状態遷移（仕様 7）。停止時に再開用サイドカー
+  `..._resume_YYMMDD-HHMM.json`（`engine.StopState`）を出力。同一起動中は④タブの「停止位置から再開」、
+  再起動後はメニュー「停止結果を読み込んで再開…」。再開時は部分動画を連結して連続動画を出力
 
 ## セットアップ
 
@@ -37,7 +39,7 @@ python -m pytest bisim/tests   # pytest がある場合
 | `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name` |
 | `paramio.py` | model/sim パラメータ CSV の読み書き（CLI版 `degparam_mm.csv` / `simconf.csv` と互換） |
 | `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） |
-| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel` / `StressState` / `RunControl` / `run_recipe` / `run_sequence` / 出力の確定・破棄 |
+| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel` / `StressState` / `RunControl` / `StopState`・`ResumePlan`（停止・再開）/ `run_recipe` / `run_sequence` / 出力の確定・破棄 |
 | `logio.py` | `Logger`（`_log_BISim/` 日付ローテーション、容量上限、画面表示 listener） |
 | `ui/` | 本番GUI。`theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言はレビュー反映）/ `widgets.py`（ImagePanel, MplCanvas）/ `main_window.py`（MainWindow＋SimWorker）/ `tabs/`（5タブ） |
 | `__main__.py` | エントリ（`python -m bisim`＝GUI起動、`--info`＝データ層確認） |

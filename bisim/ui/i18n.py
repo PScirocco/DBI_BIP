@@ -44,6 +44,7 @@ STR: dict[str, dict[str, str]] = {
     "menu.seq.save_as": {"ja": "シーケンスに名前を付けて保存…", "en": "Save sequence as…"},
     "menu.recipe.load": {"ja": "レシピを読込…", "en": "Load recipe…"},
     "menu.recipe.save": {"ja": "選択レシピを保存…", "en": "Save selected recipe…"},
+    "menu.resume.load": {"ja": "停止結果を読み込んで再開…", "en": "Load stopped result & resume…"},
     "menu.lang": {"ja": "言語 / Language", "en": "言語 / Language"},
     "menu.lang.ja": {"ja": "日本語 (JP)", "en": "日本語 (JP)"},
     "menu.lang.en": {"ja": "English (EN)", "en": "English (EN)"},
@@ -55,8 +56,15 @@ STR: dict[str, dict[str, str]] = {
     "status.recipe_saved": {"ja": "レシピを保存: {path}", "en": "Recipe saved: {path}"},
     "status.applied": {"ja": "ステップ設定を適用しました", "en": "Step config applied"},
     "status.saved": {"ja": "保存: {path}", "en": "Saved: {path}"},
-    "status.stopped": {"ja": "停止しました", "en": "Stopped"},
+    "status.stopped": {"ja": "停止しました（保存済み／再開可）", "en": "Stopped (saved / resumable)"},
+    "status.stopped_discard": {"ja": "停止しました（破棄）", "en": "Stopped (discarded)"},
     "status.run_done": {"ja": "実行完了", "en": "Run complete"},
+    "status.resumed": {"ja": "停止位置から再開: {name}", "en": "Resumed from stop: {name}"},
+
+    "dlg.resume_filter": {"ja": "停止結果 (*_resume_*.json)", "en": "Stopped result (*_resume_*.json)"},
+    "dlg.resume_nomatch": {"ja": "この停止結果のレシピ「{name}」が現在のシーケンスに見つかりません。",
+                           "en": "Recipe \"{name}\" from this stopped result is not in the current sequence."},
+    "dlg.resume_notmovie": {"ja": "静止画ステップは再開の必要がありません。", "en": "Still-image steps do not need resume."},
 
     "dlg.seq_filter": {"ja": "シーケンス (*.seq.json)", "en": "Sequence (*.seq.json)"},
     "dlg.recipe_filter": {"ja": "レシピ (*.recipe.json)", "en": "Recipe (*.recipe.json)"},
@@ -179,6 +187,7 @@ STR: dict[str, dict[str, str]] = {
     "run.btn.pause": {"ja": "❚❚ 中断", "en": "❚❚ Pause"},
     "run.btn.resume": {"ja": "▶ 再開", "en": "▶ Resume"},
     "run.btn.stop": {"ja": "■ 停止（保存確認）", "en": "■ Stop (save prompt)"},
+    "run.btn.resume_stop": {"ja": "▶↻ 停止位置から再開", "en": "▶↻ Resume from stop"},
     "run.idle": {"ja": "待機中", "en": "Idle"},
     "run.dash": {"ja": "―", "en": "—"},
     "run.calc_time": {"ja": "計算時間: {s:.1f} s", "en": "Compute time: {s:.1f} s"},
@@ -198,6 +207,14 @@ STR: dict[str, dict[str, str]] = {
     "run.msg.nosteps": {"ja": "レシピがありません。", "en": "No recipes."},
     "run.msg.unset": {"ja": "レシピ #{n} の入力画像 / ヒートマップが未設定です。",
                       "en": "Recipe #{n}: input image / heat map not set."},
+    "run.msg.no_resume": {"ja": "選択したステップに再開できる停止結果がありません。",
+                          "en": "The selected step has no resumable stopped result."},
+    "run.resume.title": {"ja": "停止位置から再開", "en": "Resume from stop"},
+    "run.resume.msg": {"ja": "「{name}」をフレーム {f}/{ft} から再開します。\n"
+                             "累積 Aging 時間: {aging}",
+                       "en": "Resume \"{name}\" from frame {f}/{ft}.\n"
+                             "Accumulated aging time: {aging}"},
+    "run.log.resume": {"ja": "停止位置から再開: {name}（フレーム {f}）", "en": "Resume from stop: {name} (frame {f})"},
     "run.save.title": {"ja": "停止 — 出力の保存", "en": "Stop — save output"},
     "run.save.msg": {"ja": "ステップ「{name}」を {f} フレームで停止しました。\n"
                            "ここまでの結果をファイルに保存しますか？\n"

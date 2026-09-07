@@ -153,3 +153,54 @@ def test_run_small_sequence_end_to_end():
         win.results_tab.view_deg.reload()
         win.results_tab.view_stat.reload()
         win.close()   # tempdir を消す前に VideoCapture を解放
+
+
+def _wait_idle(win, timeout=90):
+    end = time.time() + timeout
+    while win.worker is not None and time.time() < end:
+        _app().processEvents()
+        time.sleep(0.02)
+    assert win.worker is None, "worker が終了しなかった"
+
+
+def test_stop_then_resume_same_session():
+    if not _pyside_ok():
+        return
+    from PySide6.QtWidgets import QMessageBox
+    win = _new_window()
+    orig_q = QMessageBox.question
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            win.sequence.sequence_name = "RSM"
+            win.sequence.folders["output"] = d
+            win.sequence.recipes = [_movie_recipe("aging01")]
+            win.steps_changed()
+            win.run_tab.cmb_sel.setCurrentIndex(0)
+
+            # 1回目: 数フレームで停止（保存Yes → サイドカー生成）
+            win.run_steps("selected")
+            win.worker.sig_progress.connect(
+                lambda pos, n, f, ft, q: win.stop_run() if f >= 1 else None)
+            _wait_idle(win)
+            assert 1 in win._stopped_states
+            st = win._stopped_states[1]
+            assert st.is_movie and st.frames_done >= 1
+            assert win.resumable_nn_for_selected() == 1
+
+            # 2回目: 停止位置から再開（confirm Yes）。max_frames で早期に完了扱い
+            win._max_frames = 4
+            win.run_tab.cmb_sel.setCurrentIndex(0)
+            win.run_steps("resume")
+            _wait_idle(win)
+            assert 1 in win.results
+            mv = win.results[1].outputs["movie"]
+            assert Path(mv).name == "RSM_01_aging01_movie.mp4"      # 通常完了名
+            import cv2
+            cap = cv2.VideoCapture(str(mv))
+            n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
+            assert n >= st.frames_done + 2                          # 連続動画
+            win.close()
+    finally:
+        QMessageBox.question = orig_q
