@@ -66,11 +66,13 @@
 ## 4. ファイル命名規則
 
 `種別` = `deg` / `stat` / `movie` / `image` / `model-param` / `sim-param` …
-`色` = `r` / `g` / `b`（必要な種別のみ。`w` は作らない）
+`色` = `r` / `g` / `b`（**`deg` / `stat` のみ**。`movie` / `image` / `model-param` / `sim-param` は色なし単一ファイル。`w` は作らない）
+
+- `model-param` / `sim-param` は CLI版（`source/` の `degparam_mm.csv` / `simconf.csv`）と同一書式の単一ファイル。`degparam_mm.csv` は「1行 `N,r,g,b`」、`simconf.csv` は「1行 `KEY,値`」。
 
 | 区分 | 規則 | 例 |
 |---|---|---|
-| **入力** | `レシピ名_種別[_色].拡張子` | `aging01_movie.mp4` / `aging01_model-param_r.csv` |
+| **入力** | `レシピ名_種別[_色].拡張子` | `aging01_movie.mp4` / `aging01_model-param.csv` / `pq01_stat_r.csv` |
 | **出力（通常完了）** | `シーケンス名_NN_レシピ名_種別[_色].拡張子`（NN＝シーケンス内通し番号 2桁） | `SEQ_A_01_aging01_deg_r.csv` / `SEQ_A_01_aging01_movie.mp4` |
 | **出力（停止保存）** | 上記末尾に `_YYMMDD-HHMM` を付加（年月日各2桁＋時分のみ24時間制各2桁） | `SEQ_A_01_aging01_stat_r_260904-1430.csv` |
 
