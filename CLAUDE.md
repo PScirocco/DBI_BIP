@@ -75,6 +75,7 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 
 - `docs/GUI仕様.md` — 本番GUIの確定仕様（Config構造・命名規則・タブ別仕様・状態遷移）。9月実装フェーズの基準
 - `docs/実装計画.md` — 9月フェーズの実装タスク（T1〜T10、フェーズA〜Fに区分、この順で進める）。チェックボックスで進捗管理。フェーズ完了判定＝全チェック＋selftest 全pass＋commit
+- `docs/EXEビルド手順書.md` — PyInstaller で EXE を作る手順（前提・ビルド・確認・トラブルシュート・onefile）
 - `docs/progress/` — 進捗報告と IP設計者レビュー記録（`260903_*`）
 - `docs/理解と方針.md` — コードと資料の対応、モデル式の解説、実装ステータス、GUI方針
 - 図解（Artifact, 要ログイン）: https://claude.ai/code/artifact/1d4f42d1-9610-4952-b669-e83fc9571caf
