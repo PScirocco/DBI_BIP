@@ -27,32 +27,49 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `AMOLED_Image_sticking_prevention_compensation_v01.pptx`（2018, Matsui） | DBI補正アルゴリズムの理論。劣化モデルの根拠 |
 | `Platform Concept for DBI & BIP development.pptx`（2026.07, Matsui & Isobe） | シミュレータ＋DBI/BIP評価プラットフォームの構想 |
 
-## 現在の状況（2026-09）
+## 現在の状況（2026-09-07）
 
 - UX検証プロトタイプ（`prototype/`）は完成、**2026-09-03 に IP設計者レビュー実施済み**。
-- 次フェーズ：レビュー結果を反映した**本番GUIの実装**。確定仕様は `docs/GUI仕様.md`。
-  プロトタイプは破棄し、本番は作り直す。
+- レビュー結果を反映した**本番GUIを新パッケージ `bisim/` として実装中**（プロトタイプは参照用に残す）。
+  確定仕様 `docs/GUI仕様.md`、実装手順 `docs/実装計画.md`（T1〜T10 を フェーズA〜F に区分）。
+- **進捗：フェーズA（T1〜T3 データモデル・命名規則）＋ フェーズB（T4〜T5 エンジン・ログ）実装済み・commit 済み。**
+  次は フェーズC（T6〜T7 UIシェル・5タブ）。
 - IP設計者のアルゴリズムコア着手は**10月初め**。統合 → 原理確認 → 社内試用 を経て10月末完成予定。
 - 当面先/スコープ外：出力マップの画像フォーマット化＋専用ビューア、CPU並列（画像分割）、
   DBI/BIP補正実装、実機データ比較・モデル修正。
 - 経緯・スケジュールは `docs/progress/`。
 
-## GUI プロトタイプ（レビュー済み・破棄予定）
+## 本番GUI `bisim/`（実装中）
 
-`prototype/` … PySide6、5タブ（フォルダ設定 / 実行ステップ / ステップ設定 / 実行 / 結果）。
-起動時に `eval_exec.bat` 相当の4ステップと `dbi_output/` の既存結果を自動読み込み。
-JP/EN 切替（`prototype/i18n.py`）、明るいグレー基調。
-劣化計算は `source/` の `temp_update_stat_and_burn_img()` を import（`source/` 無改変）。詳細は `prototype/README.md`。
+| モジュール | 役割 | フェーズ |
+|---|---|---|
+| `paths.py` | SOURCE_DIR / APP_DIR / LOG_DIR / 既定フォルダ6種 | A |
+| `model.py` | `Recipe` / `Sequence` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） | A |
+| `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name`（`_`→`-`） | A |
+| `paramio.py` | model/sim パラメータ CSV I/O（CLI版 `degparam_mm.csv` / `simconf.csv` と互換） | B |
+| `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） | B |
+| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl`（中断・停止）/ `run_recipe` / `run_sequence` / 出力の確定・破棄 / `format_aging` | B |
+| `logio.py` | `Logger`（`_log_BISim/` 日付ローテーション、容量上限、画面表示 listener） | B |
+| `ui/`（未） | 5タブ、メニュー、テーマ | C |
 
-- 実行環境: リポジトリ直下に `.venv`（`prototype/requirements.txt`: PySide6/numpy/opencv-python/matplotlib）。
+- 実行：`python -m bisim`（現状はデータ層＋エンジンの確認）／ **テスト：`python -m bisim.selftest`（pytest 不要、36/36 pass）**
+- 依存：`bisim/requirements.txt`（prototype と同じ ＋ pytest）
+- ファイル命名規則：入力 `レシピ名_種別[_色].ext` ／ 出力 `シーケンス名_NN_レシピ名_種別[_色].ext`、停止保存は末尾 `_YYMMDD-HHMM`。色トークンは `deg`/`stat` のみ
+
+## GUI プロトタイプ（レビュー済み・参照用）
+
+`prototype/` … PySide6、5タブ。JP/EN 切替（`prototype/i18n.py`）、明るいグレー基調。
+本番の UI レイアウトの下敷き。`i18n.py` / `widgets.py` / `apply_light_theme` は `bisim/` に移植予定。詳細は `prototype/README.md`。
+
+- 実行環境: リポジトリ直下に `.venv`（`bisim/requirements.txt` = prototype と同内容 ＋ pytest）。
   社給PCの pip は社内ミラー固定のため、インストールは社内ネットワーク接続時に行う。
 - Unicode パス注意: `cv2.imread/imwrite` は `C:\ユーザー\…` で PNG を扱えない。
-  prototype は `prototype/imio.py` で回避。`source/main.py` の静止画ステップはこのパスでは失敗する。
+  `prototype/imio.py` ／ `bisim/imio.py` で回避。動画I/Oは cv2 直で可（`bisim` は VideoWriter を ASCII 一時ファイル経由）。`source/main.py` の静止画ステップはこのパスでは失敗する。
 
 ## 詳細ドキュメント
 
 - `docs/GUI仕様.md` — 本番GUIの確定仕様（Config構造・命名規則・タブ別仕様・状態遷移）。9月実装フェーズの基準
-- `docs/実装計画.md` — 9月フェーズの実装タスク（T1〜T10、この順で進める）。`prototype/` からの移植可否も記載
+- `docs/実装計画.md` — 9月フェーズの実装タスク（T1〜T10、フェーズA〜Fに区分、この順で進める）。チェックボックスで進捗管理。フェーズ完了判定＝全チェック＋selftest 全pass＋commit
 - `docs/progress/` — 進捗報告と IP設計者レビュー記録（`260903_*`）
 - `docs/理解と方針.md` — コードと資料の対応、モデル式の解説、実装ステータス、GUI方針
 - 図解（Artifact, 要ログイン）: https://claude.ai/code/artifact/1d4f42d1-9610-4952-b669-e83fc9571caf
@@ -84,6 +101,8 @@ deg  = exp( -( stat ** (B0 + A·temp) ) )
 
 ## 環境メモ
 
-- `source/.venv` はベースPythonが不在で壊れている。プロトタイプ用にリポジトリ直下の `.venv` を使用。
+- `source/.venv` はベースPythonが不在で壊れている。`prototype/` `bisim/` ともリポジトリ直下の `.venv` を使用（Python 3.9）。
 - OpenCVは画素並びが BGR。動画は (w,h)、静止画は (h,w) の順に注意。
-- git 管理下（ブランチ master）。
+- Python 3.9 のため各モジュール先頭で `from __future__ import annotations`（`str | None` 等を実行時に評価させない）。
+- git 管理下（ブランチ master、remote `https://github.com/PScirocco/DBI_BIP`）。
+- コミットは日本語メッセージ。末尾に `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`。
