@@ -1,0 +1,5 @@
+PySide6>=6.6
+numpy>=1.24
+opencv-python>=4.8
+matplotlib>=3.7
+pytest>=7            # 開発時のみ。pytest 無しでも `python -m bisim.selftest` で確認可

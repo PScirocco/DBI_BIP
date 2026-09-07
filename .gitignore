@@ -1,2 +1,7 @@
-﻿.venv/
+.venv/
 **/__pycache__/
+*.pyc
+
+# bisim ランタイム生成物
+/bisim_app.json
+/_log_BISim/
