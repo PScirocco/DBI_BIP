@@ -7,7 +7,8 @@
 
 - **フェーズA（T1〜T3）実装済み**: データモデル（`model.py`）＋ 命名規則（`naming.py`）＋ パス（`paths.py`）
 - **フェーズB（T4〜T5）実装済み**: 劣化エンジン（`engine.py`）＋ パラメータCSV I/O（`paramio.py`）＋ ログ（`logio.py`）＋ 画像I/O（`imio.py`）
-- UI（5タブ）は未実装（フェーズC以降）
+- **フェーズC（T6〜T7）実装済み**: 本番GUI（`ui/`。PySide6、5タブ）。`python -m bisim` で起動
+- UI の中断・停止・再開の完全な状態遷移（T8）はフェーズD
 
 ## セットアップ
 
@@ -21,8 +22,9 @@ pip install -r bisim/requirements.txt
 ## 実行・確認
 
 ```powershell
-python -m bisim            # 現状: データ層の存在確認のみ
-python -m bisim.selftest   # 全テスト（pytest 不要）
+python -m bisim            # 本番GUI（5タブ）を起動
+python -m bisim --info     # データ層＋エンジンの存在確認のみ（GUIなし）
+python -m bisim.selftest   # 全テスト（pytest 不要。UIは QT_QPA_PLATFORM=offscreen 推奨）
 python -m pytest bisim/tests   # pytest がある場合
 ```
 
@@ -37,6 +39,7 @@ python -m pytest bisim/tests   # pytest がある場合
 | `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） |
 | `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel` / `StressState` / `RunControl` / `run_recipe` / `run_sequence` / 出力の確定・破棄 |
 | `logio.py` | `Logger`（`_log_BISim/` 日付ローテーション、容量上限、画面表示 listener） |
-| `__main__.py` | エントリ（フェーズCで UI 起動に差し替え） |
+| `ui/` | 本番GUI。`theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言はレビュー反映）/ `widgets.py`（ImagePanel, MplCanvas）/ `main_window.py`（MainWindow＋SimWorker）/ `tabs/`（5タブ） |
+| `__main__.py` | エントリ（`python -m bisim`＝GUI起動、`--info`＝データ層確認） |
 | `selftest.py` | pytest 無しのテストランナー |
-| `tests/` | `test_model` / `test_naming` / `test_paramio` / `test_engine` / `test_logio` |
+| `tests/` | `test_model` / `test_naming` / `test_paramio` / `test_engine` / `test_logio` / `test_ui`（headless） |
