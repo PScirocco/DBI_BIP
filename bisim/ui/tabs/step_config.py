@@ -9,8 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
-    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGroupBox,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -147,17 +147,24 @@ class StepConfigTab(QWidget):
         form.addWidget(self.btn_apply)
         form.addStretch(1)
 
+        # 左カラムはスクロール可（ウィンドウを縦に小さくしても畳める。
+        # これが無いと全タブの最小高さがこのフォーム分まで押し上げられる）
+        form_scroll = QScrollArea()
+        form_scroll.setWidget(form_host)
+        form_scroll.setWidgetResizable(True)
+        form_scroll.setFrameShape(QFrame.Shape.NoFrame)
+
         # ---- プレビュー ----
         prev_host = QWidget()
         pv = QVBoxLayout(prev_host)
-        self.pv_img = ImagePanel(t("cfg.pv.input"))
-        self.pv_ht = ImagePanel(t("cfg.pv.heatmap"))
-        self.pv_prev = ImagePanel(t("cfg.pv.prev"))
+        self.pv_img = ImagePanel(t("cfg.pv.input"), min_h=100)
+        self.pv_ht = ImagePanel(t("cfg.pv.heatmap"), min_h=100)
+        self.pv_prev = ImagePanel(t("cfg.pv.prev"), min_h=100)
         pv.addWidget(self.pv_img, 1)
         pv.addWidget(self.pv_ht, 1)
         pv.addWidget(self.pv_prev, 1)
 
-        root.addWidget(form_host, 3)
+        root.addWidget(form_scroll, 3)
         root.addWidget(prev_host, 2)
         self.set_enabled(False)
 

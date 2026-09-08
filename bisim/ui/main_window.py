@@ -117,7 +117,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.resize(1200, 840)
+        self._apply_default_geometry()
 
         self.app_config = AppConfig.load_or_default(APP_CONFIG_PATH)
         i18n.LANG = self.app_config.language
@@ -162,6 +162,19 @@ class MainWindow(QMainWindow):
         self.steps_changed()
         self.statusBar().showMessage(t("status.ready"))
         self.logger.action(f"BI-sim {__version__} 起動")
+
+    def _apply_default_geometry(self):
+        """既定ウィンドウサイズ。縦は利用可能画面の約 80%（フルスクリーンにしない）。
+
+        マウスでのリサイズ挙動（フォントは固定、画像エリアが伸縮）は変えない。
+        """
+        w, h = 1200, 760
+        scr = QApplication.primaryScreen()
+        if scr is not None:
+            av = scr.availableGeometry()
+            w = max(900, min(1200, int(av.width() * 0.92)))
+            h = max(560, min(900, int(av.height() * 0.80)))
+        self.resize(w, h)
 
     # ---- menus ----
     def _build_menus(self):
