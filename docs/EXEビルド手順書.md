@@ -15,7 +15,7 @@
 # リポジトリ直下・社内ネットワーク接続
 .\.venv\Scripts\pip install pyinstaller
 .\.venv\Scripts\python -m bisim.selftest        # 49/49 pass を確認
-.installeruild_exe.ps1
+.\installer\build_exe.ps1
 # → dist\BI-sim\BI-sim.exe  ＋  dist\BI-sim_YYMMDD.zip
 ```
 
@@ -77,25 +77,31 @@ py -3.9 -m venv .venv
 ### 4-A. スクリプトで（推奨）
 
 ```powershell
-.installeruild_exe.ps1
+.\installer\build_exe.ps1
 ```
 
 `build_exe.ps1` の動作:
 1. `.venv` の存在確認
 2. pyinstaller 未導入なら導入
 3. `build\BI-sim` `dist\BI-sim` を消してクリーンビルド
-4. `pyinstaller --noconfirm --clean installerisim.spec` を実行
-5. `dist\BI-sim` を `dist\BI-sim_YYMMDD.zip` に圧縮
-6. フォルダ総サイズと配布 zip のパスを表示
+4. `pyinstaller --noconfirm --clean installer\bisim.spec` を実行
+5. フォルダ総サイズを表示
+6. `dist\BI-sim` を `dist\BI-sim_YYMMDD.zip` に圧縮（`tar` 優先、失敗時 `Compress-Archive`）
+   - **zip に失敗しても `dist\BI-sim\` は完成済み**。警告を出して続行する（§7 の配布は zip でもフォルダコピーでも可）
 
 ### 4-B. 手動で（スクリプトを使わない場合）
 
 ```powershell
 # 必ずリポジトリ直下で実行（spec が SPECPATH からリポジトリ位置を解決する）
 Remove-Item -Recurse -Force build\BI-sim, dist\BI-sim -ErrorAction SilentlyContinue
-.\.venv\Scripts\pyinstaller --noconfirm --clean installerisim.spec
-Compress-Archive -Path dist\BI-sim\* -DestinationPath ("dist\BI-sim_{0}.zip" -f (Get-Date -Format yyMMdd))
+.\.venv\Scripts\pyinstaller --noconfirm --clean installer\bisim.spec
+
+# zip 化（tar 推奨。Compress-Archive は多数ファイルで失敗しやすい）
+tar -a -c -f dist\BI-sim.zip -C dist BI-sim
 ```
+
+`dist\BI-sim\` が出来ていれば EXE は完成。zip はエクスプローラの「圧縮 (zip) フォルダー」でも、
+フォルダごとコピーでも配布できる。
 
 ビルドログの最後に `Building COLLECT ... completed successfully.` が出れば成功。
 警告（`WARNING: ...`）は多少出るが、`ERROR` が無ければ基本OK。
@@ -174,7 +180,7 @@ Python も開発ツールも無いPC（社内の別PC / まっさらな VM）で
 
 ### ビルドは通るが起動しない / すぐ落ちる
 
-**まず詳細を出す。** `installerisim.spec` を一時的に編集:
+**まず詳細を出す。** `installer\bisim.spec` を一時的に編集:
 
 ```python
 exe = EXE(
@@ -247,7 +253,7 @@ matplotlib のフォント。対象PCに **Yu Gothic / Meiryo**（Windows 標準
 
 ## 9. onefile（単一 .exe）で作りたい場合
 
-`installerisim.spec` を次のように変更:
+`installer\bisim.spec` を次のように変更:
 
 ```python
 exe = EXE(
@@ -279,7 +285,7 @@ exe = EXE(
 
 1. コードを更新して `git commit`
 2. `python -m bisim.selftest` が全 pass
-3. `.installeruild_exe.ps1`（`--clean` 込みなのでキャッシュ事故は起きにくい）
+3. `.\installer\build_exe.ps1`（`--clean` 込みなのでキャッシュ事故は起きにくい）
 4. zip 名の日付が変わる。配布済みの版と区別できるよう、必要なら
    `bisim/__init__.py` の `__version__` を上げてから配布
 
