@@ -1,7 +1,7 @@
 # BI-sim EXE ビルド手順書（PyInstaller）
 
 `bisim/` の本番GUIを、Python 環境の無いPCでも動く **EXE** にして配布するための手順。
-フェーズE（T9）の成果物 `packaging/` を使う。IP設計者への配布・社内試用を想定。
+フェーズE（T9）の成果物 `installer/` を使う。IP設計者への配布・社内試用を想定。
 
 - 対象: Windows 10 / 11（64bit）
 - 所要時間: 初回 15〜30 分（依存DL含む）、2回目以降 3〜7 分
@@ -15,7 +15,7 @@
 # リポジトリ直下・社内ネットワーク接続
 .\.venv\Scripts\pip install pyinstaller
 .\.venv\Scripts\python -m bisim.selftest        # 49/49 pass を確認
-.\packaging\build_exe.ps1
+.installeruild_exe.ps1
 # → dist\BI-sim\BI-sim.exe  ＋  dist\BI-sim_YYMMDD.zip
 ```
 
@@ -77,14 +77,14 @@ py -3.9 -m venv .venv
 ### 4-A. スクリプトで（推奨）
 
 ```powershell
-.\packaging\build_exe.ps1
+.installeruild_exe.ps1
 ```
 
 `build_exe.ps1` の動作:
 1. `.venv` の存在確認
 2. pyinstaller 未導入なら導入
 3. `build\BI-sim` `dist\BI-sim` を消してクリーンビルド
-4. `pyinstaller --noconfirm --clean packaging\bisim.spec` を実行
+4. `pyinstaller --noconfirm --clean installerisim.spec` を実行
 5. `dist\BI-sim` を `dist\BI-sim_YYMMDD.zip` に圧縮
 6. フォルダ総サイズと配布 zip のパスを表示
 
@@ -93,7 +93,7 @@ py -3.9 -m venv .venv
 ```powershell
 # 必ずリポジトリ直下で実行（spec が SPECPATH からリポジトリ位置を解決する）
 Remove-Item -Recurse -Force build\BI-sim, dist\BI-sim -ErrorAction SilentlyContinue
-.\.venv\Scripts\pyinstaller --noconfirm --clean packaging\bisim.spec
+.\.venv\Scripts\pyinstaller --noconfirm --clean installerisim.spec
 Compress-Archive -Path dist\BI-sim\* -DestinationPath ("dist\BI-sim_{0}.zip" -f (Get-Date -Format yyMMdd))
 ```
 
@@ -113,6 +113,7 @@ dist\BI-sim\
 │   ├─ numpy\ ...
 │   ├─ matplotlib\ mpl-data\ ...
 │   └─ source\                   ← 同梱データ
+│       ├─ main.py  load_com_info.py   ← 劣化コア（暫定モデル）
 │       ├─ dbi_conf\  degparam_mm.csv / simconf.csv
 │       ├─ dbi_input\ bcsetting.csv
 │       └─ dbi_common\ mov_001_480x270.mp4 / mov_ht_001_480x270.mp4 / eval_img*.png
@@ -123,7 +124,8 @@ dist\BI-sim\
 ```
 
 - **`dist\BI-sim\` フォルダごと**配布する（`BI-sim.exe` 単体では動かない）。
-- `劣化コア`（`source/main.py` / `load_com_info.py`）は `_internal` 内にモジュールとして取り込まれる。
+- 劣化コア（`source/main.py` / `load_com_info.py`）は `_internal\source\` に**データファイルとして**置かれ、
+  `bisim/engine.py::_load_burn_fn` がそのパスから直接ロードする（`import main` は使わない。§8「劣化コアが読めない」）。
 - 大きい原寸動画（`input.*` / `mov_001.mp4`）と `dbi_output/`（CLI結果 96MB）は**同梱しない**。
 
 ### サイズ目安
@@ -172,7 +174,7 @@ Python も開発ツールも無いPC（社内の別PC / まっさらな VM）で
 
 ### ビルドは通るが起動しない / すぐ落ちる
 
-**まず詳細を出す。** `packaging\bisim.spec` を一時的に編集:
+**まず詳細を出す。** `installerisim.spec` を一時的に編集:
 
 ```python
 exe = EXE(
@@ -189,9 +191,19 @@ exe = EXE(
 | トレースバック | 対処 |
 |---|---|
 | `ModuleNotFoundError: No module named 'xxx'` | `bisim.spec` の `hiddenimports` に `'xxx'` を追加して再ビルド |
-| `No module named 'main'` / `'load_com_info'` | `pathex` に `str(SRC)` があるか確認（spec 済み）。`source/*.py` が実在するか |
 | `Could not find the Qt platform plugin "windows"` | `excludes` を削りすぎ。`dist\BI-sim\_internal\PySide6\plugins\platforms\qwindows.dll` の有無を確認 |
 | `matplotlib ... backend_qtagg` 関連 | `hiddenimports` に既に入れてある。無ければ追加、またはビルド時に `--collect-submodules matplotlib` |
+
+### 劣化コアが読めない（④実行で `EngineError` / 旧: `cannot import name 'temp_update_stat_and_burn_img' from 'main'`）
+
+`import main` がありふれた名前ゆえに別モジュールを掴む事故。**現行 spec / engine は対策済み**
+（`source/main.py` を `_internal\source\` に datas 同梱 → `engine._load_burn_fn` がファイルパスで直接ロード。
+`hiddenimports` から `"main"` は除外）。それでも出る場合:
+
+1. `dist\BI-sim\_internal\source\main.py` と `load_com_info.py` が実在するか
+   （無ければ `bisim.spec` の `datas` の `(str(SRC / "main.py"), "source")` 行を確認して再ビルド）
+2. エラーメッセージに出るパス（`劣化コア <パス> の読み込みに失敗` 等）を確認
+3. 古い EXE を掴んでいないか（`build_exe.ps1` は `--clean` 付き。手動なら `build\` `dist\` を削除して再ビルド）
 
 ### 実行時の DLL エラー
 
@@ -235,7 +247,7 @@ matplotlib のフォント。対象PCに **Yu Gothic / Meiryo**（Windows 標準
 
 ## 9. onefile（単一 .exe）で作りたい場合
 
-`packaging\bisim.spec` を次のように変更:
+`installerisim.spec` を次のように変更:
 
 ```python
 exe = EXE(
@@ -267,7 +279,7 @@ exe = EXE(
 
 1. コードを更新して `git commit`
 2. `python -m bisim.selftest` が全 pass
-3. `.\packaging\build_exe.ps1`（`--clean` 込みなのでキャッシュ事故は起きにくい）
+3. `.installeruild_exe.ps1`（`--clean` 込みなのでキャッシュ事故は起きにくい）
 4. zip 名の日付が変わる。配布済みの版と区別できるよう、必要なら
    `bisim/__init__.py` の `__version__` を上げてから配布
 
@@ -277,7 +289,7 @@ exe = EXE(
 
 ## 11. 既知の制限（フェーズE時点）
 
-- アプリアイコン未設定（`bisim.spec` の `icon=` を有効化し `packaging/bisim.ico` を置けば付く）
+- アプリアイコン未設定（`bisim.spec` の `icon=` を有効化し `installer/bisim.ico` を置けば付く）
 - 劣化コアは暫定モデル（`source/main.py`）。IP設計者の最終コア差し替えはフェーズF（T10）
 - 実ビルド＋クリーンPC実機確認は、この手順書作成時点で**未実施**（社内NW接続環境で本手順を実施すること）
 - 大解像度対応・CPU並列・DBI/BIP補正・実機比較はスコープ外（`docs/GUI仕様.md` 8章）
@@ -286,8 +298,8 @@ exe = EXE(
 
 ## 関連
 
-- `packaging/bisim.spec` … PyInstaller 定義（同梱データ・除外モジュール）
-- `packaging/bisim_launcher.py` … エントリ（`python -m bisim` 相当）
-- `packaging/build_exe.ps1` … 本手順 §4-A のスクリプト
+- `installer/bisim.spec` … PyInstaller 定義（同梱データ・除外モジュール）
+- `installer/bisim_launcher.py` … エントリ（`python -m bisim` 相当）
+- `installer/build_exe.ps1` … 本手順 §4-A のスクリプト
 - `bisim/paths.py::_default_output` … frozen 時に出力先を exe 横 `bisim_output/` に切替
 - `bisim/tests/test_packaging.py` … spec / launcher の静的チェック

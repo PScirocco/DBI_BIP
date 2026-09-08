@@ -1,8 +1,9 @@
-# BI-sim パッケージング（T9 / フェーズE）
+# BI-sim パッケージング（T9 / フェーズE）  — `installer/`
 
 IP設計者へ **EXE で配布**するための PyInstaller 一式。
+（フォルダ名は `installer/`。PyPI の `packaging` ライブラリと名前が衝突しないため）
 
-> **ビルド手順は `docs/EXEビルド手順書.md` を参照。** ここは packaging/ 内ファイルの索引と
+> **ビルド手順は `docs/EXEビルド手順書.md` を参照。** ここは `installer/` 内ファイルの索引と
 > 「何が同梱されるか」のリファレンス。
 
 | ファイル | 内容 |
@@ -17,7 +18,7 @@ IP設計者へ **EXE で配布**するための PyInstaller 一式。
 # リポジトリ直下・社内ネットワーク接続時
 .\.venv\Scripts\pip install pyinstaller
 .\.venv\Scripts\python -m bisim.selftest      # 全 pass を確認
-.\packaging\build_exe.ps1
+.\installer\build_exe.ps1
 # → dist\BI-sim\BI-sim.exe ＋ dist\BI-sim_YYMMDD.zip
 ```
 
@@ -25,7 +26,7 @@ IP設計者へ **EXE で配布**するための PyInstaller 一式。
 
 | 同梱する | 同梱しない |
 |---|---|
-| `source/main.py` `source/load_com_info.py`（劣化コア＝暫定モデル。モジュールとして取込） | `source/dbi_output/`（CLI の実行結果 96MB） |
+| `source/main.py` `source/load_com_info.py`（劣化コア＝暫定モデル。**datas で `_internal/source/` に配置**し `engine._load_burn_fn` がファイルパスで直接ロード） | `source/dbi_output/`（CLI の実行結果 96MB） |
 | `source/dbi_conf/*.csv`（degparam_mm / simconf） | `source/dbi_common/input.*` `mov_001.mp4` `mov_ht_001.mp4`（原寸動画） |
 | `source/dbi_input/bcsetting.csv` | `prototype/` `docs/` `.venv/` `build/` `dist/` |
 | サンプル入力 `mov_001_480x270.mp4` / `mov_ht_001_480x270.mp4` / `eval_img*.png` | |
@@ -39,5 +40,5 @@ IP設計者へ **EXE で配布**するための PyInstaller 一式。
 
 - アイコン未設定（`bisim.spec` の `icon=` を有効化すれば付く）
 - 劣化コアは暫定モデル（`source/main.py`）。IP設計者の最終コア差し替えはフェーズF（T10）
-- 実ビルド＋クリーンPC実機確認は未実施（社内NW接続環境で `docs/EXEビルド手順書.md` を実施）
+- 実ビルド＋クリーンPC実機確認は担当者が別PCで実施中（`docs/EXEビルド手順書.md` §7）
 - 大解像度・CPU並列・DBI/BIP補正・実機比較はスコープ外（`docs/GUI仕様.md` 8章）

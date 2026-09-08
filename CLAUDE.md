@@ -34,8 +34,8 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
   確定仕様 `docs/GUI仕様.md`、実装手順 `docs/実装計画.md`（T1〜T10 を フェーズA〜F に区分）。
 - **進捗：フェーズA〜E 実装済み・commit 済み。selftest 49/49。**
   A（T1〜T3 データモデル・命名規則）／ B（T4〜T5 エンジン・ログ）／ C（T6〜T7 UIシェル・5タブ）
-  ／ D（T8 中断・停止・再開）／ E（T9 パッケージング：`packaging/bisim.spec` ＋ `build_exe.ps1` ＋ 確認手順。
-  実ビルドは社内NW接続時に実施）。
+  ／ D（T8 中断・停止・再開）／ E（T9 パッケージング：`installer/bisim.spec` ＋ `build_exe.ps1` ＋ `docs/EXEビルド手順書.md`。
+  担当者が別PCで実ビルド・評価中。劣化コアは `_internal/source/main.py` を datas 同梱＋ファイルパスロード＝`engine._load_burn_fn`）。
   残：フェーズF（T10 IP設計者コア差し替え・結合試験・原理確認。10月初〜、コア受領後）。
 - IP設計者のアルゴリズムコア着手は**10月初め**。統合 → 原理確認 → 社内試用 を経て10月末完成予定。
 - 当面先/スコープ外：出力マップの画像フォーマット化＋専用ビューア、CPU並列（画像分割）、
@@ -54,7 +54,7 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `StopState`・`ResumePlan`（停止・再開）/ `run_recipe`（`resume_from`/`resume_video` で連続動画）/ `run_sequence` / 出力の確定・破棄 / `format_aging` | B/D |
 | `logio.py` | `Logger`（`_log_BISim/` 日付ローテーション、容量上限、画面表示 listener） | B |
 | `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ） | C/D |
-| `packaging/` | `bisim.spec`（PyInstaller 6.x・onedir）/ `bisim_launcher.py` / `build_exe.ps1` / `README.md`（クリーンPC確認手順） | E |
+| `installer/` | `bisim.spec`（PyInstaller 6.x・onedir）/ `bisim_launcher.py` / `build_exe.ps1` / `README.md`。手順は `docs/EXEビルド手順書.md` | E |
 
 - 実行：`python -m bisim`（GUI 起動）／ `python -m bisim --info`（データ層＋エンジン確認）／ **テスト：`python -m bisim.selftest`（pytest 不要、46/46 pass。UI は `QT_QPA_PLATFORM=offscreen` 推奨）**
 - 依存：`bisim/requirements.txt`（prototype と同じ ＋ pytest）

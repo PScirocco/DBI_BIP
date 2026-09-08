@@ -92,16 +92,66 @@ class DegradationModel(Protocol):
         """現在の state から劣化率マップ ``{"r":arr, "g":arr, "b":arr}`` を返す。"""
 
 
+_BURN_FN = None
+
+
+def _load_burn_fn():
+    """``source/main.py`` の ``temp_update_stat_and_burn_img`` を取得する。
+
+    PyInstaller で固めた EXE でも確実に動くよう、まず ``SOURCE_DIR/main.py`` を
+    **ファイルパスから直接ロード**する。``import main`` は他パッケージのトップレベル
+    モジュール名と衝突しやすく、frozen 環境では frozen 用インポータが優先されて
+    別の ``main`` を掴むことがあるため使わない。
+    """
+    global _BURN_FN
+    if _BURN_FN is not None:
+        return _BURN_FN
+
+    src = str(SOURCE_DIR)
+    if src not in sys.path:
+        sys.path.insert(0, src)          # main.py 内の `import load_com_info` 用
+
+    main_py = SOURCE_DIR / "main.py"
+    if main_py.is_file():
+        import importlib.util
+        modname = "bisim_master_source"
+        spec = importlib.util.spec_from_file_location(modname, str(main_py))
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[modname] = mod
+        try:
+            spec.loader.exec_module(mod)
+        except Exception as e:  # noqa: BLE001
+            raise EngineError(
+                f"劣化コア {main_py} の読み込みに失敗: {type(e).__name__}: {e}") from e
+        fn = getattr(mod, "temp_update_stat_and_burn_img", None)
+        if fn is None:
+            raise EngineError(f"{main_py} に temp_update_stat_and_burn_img が無い")
+        _BURN_FN = fn
+        return fn
+
+    # フォールバック: モジュール検索（source/ が sys.path 上にある開発環境）
+    import importlib
+    try:
+        m = importlib.import_module("main")
+    except ImportError as e:
+        raise EngineError(
+            f"劣化コア main.py が見つかりません（SOURCE_DIR={SOURCE_DIR}）: {e}") from e
+    fn = getattr(m, "temp_update_stat_and_burn_img", None)
+    if fn is None:
+        raise EngineError(
+            f"import した main（{getattr(m, '__file__', '?')}）に "
+            f"temp_update_stat_and_burn_img が無い（別モジュールを掴んでいる可能性）")
+    _BURN_FN = fn
+    return fn
+
+
 class MasterModel:
     """``source/main.py`` の ``temp_update_stat_and_burn_img`` をラップ（暫定モデル）。"""
 
     name = "master"
 
     def __init__(self) -> None:
-        if str(SOURCE_DIR) not in sys.path:
-            sys.path.insert(0, str(SOURCE_DIR))
-        from main import temp_update_stat_and_burn_img  # noqa: E402  (source/)
-        self._fn = temp_update_stat_and_burn_img
+        self._fn = _load_burn_fn()
 
     def update(self, dt, img_bgr, ht_bgr, state, model_param, sim_param) -> None:
         mm = paramio.to_mm_dict(model_param)

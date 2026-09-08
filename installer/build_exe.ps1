@@ -2,7 +2,7 @@
     BI-sim を EXE 化する（Windows / PowerShell）
 
     使い方（リポジトリ直下から、社内ネットワーク接続時）:
-        .\packaging\build_exe.ps1
+        .\installer\build_exe.ps1
 
     - リポジトリ直下の .venv を使う（無ければ作成を促す）
     - pyinstaller が無ければ pip で入れる（社内ミラー経由）
@@ -29,7 +29,7 @@ if ($LASTEXITCODE -ne 0) {
 if (Test-Path (Join-Path $repo "build\BI-sim")) { Remove-Item -Recurse -Force (Join-Path $repo "build\BI-sim") }
 if (Test-Path (Join-Path $repo "dist\BI-sim"))  { Remove-Item -Recurse -Force (Join-Path $repo "dist\BI-sim") }
 
-& $py -m PyInstaller --noconfirm --clean "packaging\bisim.spec"
+& $py -m PyInstaller --noconfirm --clean "installer\bisim.spec"
 if ($LASTEXITCODE -ne 0) { Write-Error "PyInstaller が失敗しました。" }
 
 $dist = Join-Path $repo "dist\BI-sim"

@@ -12,7 +12,7 @@ from pathlib import Path
 from bisim import paths
 
 _REPO = paths.REPO_DIR
-_PKG = _REPO / "packaging"
+_PKG = _REPO / "installer"
 
 
 def test_packaging_files_present_and_compile():
@@ -24,6 +24,22 @@ def test_packaging_files_present_and_compile():
     src = launcher.read_text(encoding="utf-8")
     compile(src, str(launcher), "exec")
     assert "bisim.__main__" in src and "freeze_support" in src
+    # 劣化コアは datas 同梱＋ファイルパスロード。"main" を hiddenimports の要素に入れない
+    spec_txt = spec.read_text(encoding="utf-8")
+    assert 'str(SRC / "main.py")' in spec_txt          # datas に main.py
+    assert 'str(SRC / "load_com_info.py")' in spec_txt
+    _hi = spec_txt.split("hiddenimports = [", 1)[1].split("]", 1)[0]
+    assert '"main"' not in _hi                          # リスト要素としての "main" は無い
+    assert '"load_com_info"' in _hi
+
+
+def test_engine_loads_master_by_file_path():
+    """engine._load_burn_fn が source/main.py を掴めること（frozen 相当の経路）。"""
+    from bisim import engine
+    engine._BURN_FN = None
+    fn = engine._load_burn_fn()
+    assert callable(fn)
+    assert fn.__name__ == "temp_update_stat_and_burn_img"
 
 
 def test_spec_bundles_existing_sample_inputs():
