@@ -92,6 +92,15 @@ def test_sequence_save_load():
         assert Sequence.load(p).to_dict() == s.to_dict()
 
 
+def test_appconfig_default_folders():
+    c = AppConfig()
+    assert c.default_folders == {} and "default_folders" not in c.to_dict()
+    c.default_folders = {"output": r"C:\out", "bogus": "x"}
+    d = c.to_dict()
+    assert d["default_folders"] == {"output": r"C:\out"}      # 未知キーは落ちる
+    assert AppConfig.from_dict(d).default_folders == {"output": r"C:\out"}
+
+
 def test_appconfig():
     c = AppConfig()
     assert c.log_max_mb == 50.0 and c.language == "en"

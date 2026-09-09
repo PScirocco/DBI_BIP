@@ -45,12 +45,14 @@ class FoldersTab(QWidget):
 
     def _on_edit(self, key):
         self._folders()[key] = self.edits[key].text().strip()
+        self.main.persist_folders()
 
     def _browse(self, key):
         d = QFileDialog.getExistingDirectory(self, folder_label(key), self._folders()[key])
         if d:
             self._folders()[key] = d
             self.edits[key].setText(d)
+            self.main.persist_folders()
 
     def refresh(self):
         for key, edit in self.edits.items():

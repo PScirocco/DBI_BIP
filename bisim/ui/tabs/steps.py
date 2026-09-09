@@ -34,6 +34,11 @@ class StepsTab(QWidget):
         top.addWidget(self.ed_seq, 1)
         lay.addLayout(top)
 
+        self.lbl_name_hint = QLabel(t("steps.name_hint"))
+        self.lbl_name_hint.setWordWrap(True)
+        self.lbl_name_hint.setStyleSheet("color:#8a6d1a;")
+        lay.addWidget(self.lbl_name_hint)
+
         self.lbl_note = QLabel(t("steps.note"))
         self.lbl_note.setWordWrap(True)
         lay.addWidget(self.lbl_note)
@@ -151,6 +156,7 @@ class StepsTab(QWidget):
 
     def retranslate(self):
         self.lbl_seq.setText(t("steps.seq_name"))
+        self.lbl_name_hint.setText(t("steps.name_hint"))
         self.lbl_note.setText(t("steps.note"))
         self.table.setHorizontalHeaderLabels([t(k) for k in self.H_KEYS])
         for key, (b, _slot) in self._btns.items():

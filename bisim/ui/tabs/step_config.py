@@ -125,6 +125,15 @@ class StepConfigTab(QWidget):
         f3.addRow(self.l_aging, self.sp_aging)
         self.lbl_sim_csv = QLabel(t("cfg.sim_csv_none"))
         f3.addRow(self.lbl_sim_csv)
+        hb_sim = QHBoxLayout()
+        self.b_load_sim = QPushButton(t("cfg.btn.load_csv"))
+        self.b_load_sim.clicked.connect(self._load_sim_csv)
+        self.b_save_sim = QPushButton(t("cfg.btn.save_csv"))
+        self.b_save_sim.clicked.connect(self._save_sim_csv)
+        hb_sim.addWidget(self.b_load_sim)
+        hb_sim.addWidget(self.b_save_sim)
+        hb_sim.addStretch(1)
+        f3.addRow(hb_sim)
         form.addWidget(self.gb_sim)
 
         # ---- 将来拡張 ----
@@ -182,7 +191,8 @@ class StepConfigTab(QWidget):
     def set_enabled(self, on: bool):
         for w in (self.ed_name, self.ed_img, self.ed_ht, self.cmb_init, self.tbl_model,
                   self.sp_accel, self.sp_tl, self.sp_th, self.sp_aging, self.btn_apply,
-                  self.b_img, self.b_ht, self.b_load, self.b_save):
+                  self.b_img, self.b_ht, self.b_load, self.b_save,
+                  self.b_load_sim, self.b_save_sim):
             w.setEnabled(on)
 
     # -- load / collect --
@@ -353,6 +363,41 @@ class StepConfigTab(QWidget):
         self.main.folders_changed()
         self.main.statusBar().showMessage(t("status.saved", path=path), 3000)
 
+    def _load_sim_csv(self):
+        start = self._folders()["simconf"]
+        path, _ = QFileDialog.getOpenFileName(self, t("cfg.dlg.sim_csv"), start, "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            s = paramio.read_sim_csv(path)
+        except (OSError, ValueError):
+            QMessageBox.warning(self, t("cfg.load_fail.title"), t("cfg.load_fail.msg"))
+            return
+        self._folders()["simconf"] = str(Path(path).parent)
+        self.recipe.sim_param = s
+        self.recipe.sim_param_csv = Path(path).name
+        self.sp_accel.setValue(s["ACCEL_RATIO"])
+        self.sp_tl.setValue(s["TMP_L"])
+        self.sp_th.setValue(s["TMP_H"])
+        self.sp_aging.setValue(s["AGING_TIME"])
+        self._set_csv_labels()
+        self.main.folders_changed()
+
+    def _save_sim_csv(self):
+        if self.recipe is None or not self._collect_into_recipe():
+            return
+        start = str(Path(self._folders()["simconf"]) /
+                    naming.input_name(self.recipe.recipe_name, "sim-param"))
+        path, _ = QFileDialog.getSaveFileName(self, t("cfg.dlg.sim_csv"), start, "CSV (*.csv)")
+        if not path:
+            return
+        paramio.write_sim_csv(path, self.recipe.sim_param)
+        self.recipe.sim_param_csv = Path(path).name
+        self._folders()["simconf"] = str(Path(path).parent)
+        self._set_csv_labels()
+        self.main.folders_changed()
+        self.main.statusBar().showMessage(t("status.saved", path=path), 3000)
+
     def retranslate(self):
         self.l_name.setText(t("cfg.name"))
         self.l_img.setText(t("cfg.input"))
@@ -376,6 +421,8 @@ class StepConfigTab(QWidget):
         self.cmb_init.blockSignals(False)
         self.b_load.setText(t("cfg.btn.load_csv"))
         self.b_save.setText(t("cfg.btn.save_csv"))
+        self.b_load_sim.setText(t("cfg.btn.load_csv"))
+        self.b_save_sim.setText(t("cfg.btn.save_csv"))
         self.l_accel.setText(t("cfg.accel"))
         self.l_tl.setText(t("cfg.tmp_l"))
         self.l_th.setText(t("cfg.tmp_h"))

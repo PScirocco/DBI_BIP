@@ -26,6 +26,11 @@ def on_change(cb) -> None:
         _LISTENERS.append(cb)
 
 
+def off_change(cb) -> None:
+    if cb in _LISTENERS:
+        _LISTENERS.remove(cb)
+
+
 def t(key: str, **kw) -> str:
     entry = STR.get(key)
     if entry is None:
@@ -100,6 +105,11 @@ STR: dict[str, dict[str, str]] = {
 
     # ---- steps tab ----
     "steps.seq_name": {"ja": "シーケンス名", "en": "Sequence name"},
+    "steps.name_hint": {
+        "ja": "⚠ シーケンス名・レシピ名は半角英数字を推奨。日本語などはファイル名で文字化けする場合があります"
+              "（`_`・空白・記号は保存時に `-` へ変換）。シーケンス名は保存時にファイル名へ反映されます。",
+        "en": "⚠ Use ASCII for sequence / recipe names. Non-ASCII may garble file names "
+              "(`_`, spaces and symbols become `-` on save). The sequence name is written to the file name on save."},
     "steps.h.num": {"ja": "#", "en": "#"},
     "steps.h.nn": {"ja": "NN", "en": "NN"},
     "steps.h.name": {"ja": "レシピ名", "en": "Recipe name"},
@@ -179,6 +189,7 @@ STR: dict[str, dict[str, str]] = {
     "cfg.load_fail.msg": {"ja": "CSV を読めませんでした。", "en": "Could not read the CSV."},
     "cfg.dlg.stress_csv": {"ja": "ストレスCSV", "en": "Stress CSV"},
     "cfg.dlg.model_csv": {"ja": "モデルパラメータCSV", "en": "Model parameter CSV"},
+    "cfg.dlg.sim_csv": {"ja": "Sim条件CSV", "en": "Sim condition CSV"},
 
     # ---- run tab ----
     "run.btn.all": {"ja": "▶ 全ステップ実行", "en": "▶ Run all steps"},

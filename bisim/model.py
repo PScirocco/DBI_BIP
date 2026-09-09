@@ -194,9 +194,14 @@ class AppConfig:
 
     log_max_mb: float = 50.0
     language: str = "en"        # リリースは英語（仕様 2）
+    default_folders: dict = field(default_factory=dict)   # 直近使用した6フォルダ（新規シーケンスの初期値）
 
     def to_dict(self) -> dict:
-        return {"log_max_mb": self.log_max_mb, "language": self.language}
+        d = {"log_max_mb": self.log_max_mb, "language": self.language}
+        if self.default_folders:
+            d["default_folders"] = {k: str(v) for k, v in self.default_folders.items()
+                                    if k in FOLDER_KEYS}
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "AppConfig":
@@ -207,6 +212,8 @@ class AppConfig:
             pass
         lang = str(d.get("language", cfg.language))
         cfg.language = lang if lang in ("ja", "en") else cfg.language
+        cfg.default_folders = {k: str(v) for k, v in (d.get("default_folders") or {}).items()
+                               if k in FOLDER_KEYS}
         return cfg
 
     def save(self, path) -> None:

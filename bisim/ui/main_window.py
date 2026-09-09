@@ -23,7 +23,7 @@ from bisim.logio import Logger
 from bisim.model import RECIPE_EXT, SEQ_EXT, AppConfig, Recipe, Sequence
 from bisim.paths import APP_CONFIG_PATH
 from bisim.ui import i18n
-from bisim.ui.i18n import on_change, set_lang, t
+from bisim.ui.i18n import off_change, on_change, set_lang, t
 from bisim.ui.tabs import FoldersTab, ResultsTab, RunTab, StepConfigTab, StepsTab
 from bisim.ui.tabs._common import set_recipe_status
 
@@ -124,6 +124,9 @@ class MainWindow(QMainWindow):
         self.logger = Logger(max_mb=self.app_config.log_max_mb)
 
         self.sequence = Sequence()
+        for k, v in self.app_config.default_folders.items():
+            if k in self.sequence.folders and v and Path(v).is_dir():
+                self.sequence.folders[k] = v      # 直近使用フォルダ（存在するものだけ）を初期値に
         self._seq_path: Path | None = None
         self.results: dict[int, ResultEntry] = {}
         self.current_row: int | None = None
@@ -258,21 +261,43 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(t("status.seq_opened", name=seq.sequence_name), 4000)
 
     def save_sequence(self, as_new: bool = False):
-        path = self._seq_path
-        if as_new or path is None:
-            start = f"{self.sequence.sequence_name}{SEQ_EXT}"
+        """シーケンス JSON 保存。ファイル名は常にシーケンス名（サニタイズ後）に一致させる。
+
+        - 名前を付けて保存: 選んだファイル名からシーケンス名を取り直す
+        - 保存: シーケンス名が変わっていれば旧ファイルをリネーム（移動）する
+        """
+        old_path = self._seq_path
+        if as_new or old_path is None:
+            start = f"{naming.sanitize_name(self.sequence.sequence_name)}{SEQ_EXT}"
             chosen, _ = QFileDialog.getSaveFileName(
                 self, t("menu.seq.save_as"), start, t("dlg.seq_filter"))
             if not chosen:
                 return
-            path = Path(chosen)
+            stem = Path(chosen).name
+            for ext in (SEQ_EXT, ".json"):
+                if stem.endswith(ext):
+                    stem = stem[: -len(ext)]
+                    break
+            self.sequence.sequence_name = naming.sanitize_name(stem)
+            path = Path(chosen).parent / f"{self.sequence.sequence_name}{SEQ_EXT}"
+        else:
+            self.sequence.sequence_name = naming.sanitize_name(self.sequence.sequence_name)
+            path = old_path.parent / f"{self.sequence.sequence_name}{SEQ_EXT}"
         try:
             self.sequence.save(path)
         except OSError as e:
             QMessageBox.critical(self, t("dlg.err.title"), str(e))
             return
-        self._seq_path = Path(path)
-        self.logger.io("out", Path(path).name)
+        if old_path is not None and old_path.exists() and old_path != path:
+            try:
+                old_path.unlink()                      # 旧ファイルをリネーム（＝新規保存＋旧削除）
+                self.logger.action(f"シーケンス改名: {old_path.name} → {path.name}")
+            except OSError:
+                pass
+        self._seq_path = path
+        self.steps_tab.refresh()                       # 名前欄をサニタイズ後の表記に更新
+        self.run_tab.refresh_steps()
+        self.logger.io("out", path.name)
         self.logger.action(f"シーケンス保存: {Path(path).name}")
         self.statusBar().showMessage(t("status.seq_saved", path=str(path)), 4000)
 
@@ -324,6 +349,17 @@ class MainWindow(QMainWindow):
 
     def folders_changed(self):
         self.folders_tab.refresh()
+        self.persist_folders()
+
+    def persist_folders(self):
+        """現在のフォルダ設定を bisim_app.json に控える（次回起動の新規シーケンス初期値）。"""
+        cur = {k: str(v) for k, v in self.sequence.folders.items()}
+        if cur != self.app_config.default_folders:
+            self.app_config.default_folders = cur
+            try:
+                self.app_config.save(APP_CONFIG_PATH)
+            except OSError:
+                pass
 
     def steps_changed(self):
         rs = self.sequence.recipes
@@ -582,6 +618,11 @@ class MainWindow(QMainWindow):
             self.control.request_resume()
             self.worker.wait(5000)
         self.results_tab._release_cap()
+        off_change(self.retranslate_all)
+        try:
+            self.logger.remove_listener(self.sig_log.emit)
+        except Exception:  # noqa: BLE001
+            pass
         try:
             self.app_config.save(APP_CONFIG_PATH)
         except OSError:

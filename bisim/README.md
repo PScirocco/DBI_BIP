@@ -11,8 +11,12 @@
 - **フェーズD（T8）実装済み**: 中断・停止・再開の状態遷移（仕様 7）。停止時に再開用サイドカー
   `..._resume_YYMMDD-HHMM.json`（`engine.StopState`）を出力。同一起動中は④タブの「停止位置から再開」、
   再起動後はメニュー「停止結果を読み込んで再開…」。再開時は部分動画を連結して連続動画を出力
-- **フェーズE（T9）実装済み**: `packaging/`（PyInstaller spec・ビルドスクリプト・クリーンPC確認手順）。
-  実ビルドは社内ネットワーク接続時に `packaging/build_exe.ps1`。frozen 時は既定出力が実行ファイル横 `bisim_output/`
+- **フェーズE（T9）実装済み**: `installer/`（PyInstaller spec・ビルドスクリプト）。手順は `../docs/EXEビルド手順書.md`。
+  実ビルドは社内ネットワーク接続時に `installer/build_exe.ps1`。frozen 時は既定出力が実行ファイル横 `bisim_output/`
+- **評価反映（2026-09-09〜）**: `docs/progress/260907_評価チェックシート_checked.md` の指摘を
+  `docs/progress/260909_評価反映_実装方針.md` の方針で反映。フェーズ1（Sim Param CSV I/O・
+  フォルダ永続化）／フェーズ3（シーケンス名↔ファイル名）実装済み。フェーズ2（Stop を Sequence
+  JSON に内包）は方針確定・未実装
 
 ## セットアップ
 

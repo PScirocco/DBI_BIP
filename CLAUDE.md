@@ -27,16 +27,20 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `AMOLED_Image_sticking_prevention_compensation_v01.pptx`（2018, Matsui） | DBI補正アルゴリズムの理論。劣化モデルの根拠 |
 | `Platform Concept for DBI & BIP development.pptx`（2026.07, Matsui & Isobe） | シミュレータ＋DBI/BIP評価プラットフォームの構想 |
 
-## 現在の状況（2026-09-07）
+## 現在の状況（2026-09-09）
 
 - UX検証プロトタイプ（`prototype/`）は完成、**2026-09-03 に IP設計者レビュー実施済み**。
 - レビュー結果を反映した**本番GUIを新パッケージ `bisim/` として実装中**（プロトタイプは参照用に残す）。
   確定仕様 `docs/GUI仕様.md`、実装手順 `docs/実装計画.md`（T1〜T10 を フェーズA〜F に区分）。
-- **進捗：フェーズA〜E 実装済み・commit 済み。selftest 49/49。**
+- **進捗：フェーズA〜E 実装済み・commit 済み。**
   A（T1〜T3 データモデル・命名規則）／ B（T4〜T5 エンジン・ログ）／ C（T6〜T7 UIシェル・5タブ）
-  ／ D（T8 中断・停止・再開）／ E（T9 パッケージング：`installer/bisim.spec` ＋ `build_exe.ps1` ＋ `docs/EXEビルド手順書.md`。
-  担当者が別PCで実ビルド・評価中。劣化コアは `_internal/source/main.py` を datas 同梱＋ファイルパスロード＝`engine._load_burn_fn`）。
-  残：フェーズF（T10 IP設計者コア差し替え・結合試験・原理確認。10月初〜、コア受領後）。
+  ／ D（T8 中断・停止・再開）／ E（T9 パッケージング：`installer/bisim.spec` ＋ `build_exe.ps1` ＋ `docs/EXEビルド手順書.md`）。
+  劣化コアは `_internal/source/main.py` を datas 同梱＋ファイルパスロード＝`engine._load_burn_fn`。
+- **担当者が別PC（EXE）で評価チェック完了**（`docs/progress/260907_評価チェックシート_checked.md`）。
+  評価メモ5件を `docs/progress/260909_評価反映_実装方針.md` の方針で反映中：
+  フェーズ1（Sim CSV I/O・フォルダ永続化）／ フェーズ3（シーケンス名↔ファイル名・名前の注意書き）実装済み、
+  フェーズ2（Stop 情報を Sequence JSON に内包するリデザイン）は方針確定・未実装。
+- 残：フェーズ2 → フェーズF（T10 IP設計者コア差し替え・結合試験・原理確認。10月初〜、コア受領後）。
 - IP設計者のアルゴリズムコア着手は**10月初め**。統合 → 原理確認 → 社内試用 を経て10月末完成予定。
 - 当面先/スコープ外：出力マップの画像フォーマット化＋専用ビューア、CPU並列（画像分割）、
   DBI/BIP補正実装、実機データ比較・モデル修正。
@@ -56,7 +60,7 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ） | C/D |
 | `installer/` | `bisim.spec`（PyInstaller 6.x・onedir）/ `bisim_launcher.py` / `build_exe.ps1` / `README.md`。手順は `docs/EXEビルド手順書.md` | E |
 
-- 実行：`python -m bisim`（GUI 起動）／ `python -m bisim --info`（データ層＋エンジン確認）／ **テスト：`python -m bisim.selftest`（pytest 不要、46/46 pass。UI は `QT_QPA_PLATFORM=offscreen` 推奨）**
+- 実行：`python -m bisim`（GUI 起動）／ `python -m bisim --info`（データ層＋エンジン確認）／ **テスト：`python -m bisim.selftest`（pytest 不要、テストモジュールごとに別プロセス。`test_ui` は `QT_QPA_PLATFORM=offscreen` 推奨。個別は `python -m bisim.selftest test_engine`）**
 - 依存：`bisim/requirements.txt`（prototype と同じ ＋ pytest）
 - ファイル命名規則：入力 `レシピ名_種別[_色].ext` ／ 出力 `シーケンス名_NN_レシピ名_種別[_色].ext`、停止保存は末尾 `_YYMMDD-HHMM` ＋ 再開用 `シーケンス名_NN_レシピ名_resume_YYMMDD-HHMM.json`。色トークンは `deg`/`stat` のみ
 - 中断＝メモリ保持・出力なし・計算時間フリーズ。停止＝保存確認→日時付き出力＋`StopState` サイドカー。再開＝④タブのボタン（同一起動中）／メニュー「停止結果を読み込んで再開…」（再起動後）
@@ -76,7 +80,7 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 - `docs/GUI仕様.md` — 本番GUIの確定仕様（Config構造・命名規則・タブ別仕様・状態遷移）。9月実装フェーズの基準
 - `docs/実装計画.md` — 9月フェーズの実装タスク（T1〜T10、フェーズA〜Fに区分、この順で進める）。チェックボックスで進捗管理。フェーズ完了判定＝全チェック＋selftest 全pass＋commit
 - `docs/EXEビルド手順書.md` — PyInstaller で EXE を作る手順（前提・ビルド・確認・トラブルシュート・onefile）
-- `docs/progress/` — 進捗報告と IP設計者レビュー記録（`260903_*`）
+- `docs/progress/` — 進捗報告・レビュー記録（`260903_*`）・評価チェック結果（`260907_評価チェックシート_checked.md`）・評価反映方針（`260909_評価反映_実装方針.md`）
 - `docs/理解と方針.md` — コードと資料の対応、モデル式の解説、実装ステータス、GUI方針
 - 図解（Artifact, 要ログイン）: https://claude.ai/code/artifact/1d4f42d1-9610-4952-b669-e83fc9571caf
   （時間×電流の履歴 / Δη₁・Δη₂の2成分分解 / Iref換算 / コード対応）
