@@ -21,17 +21,9 @@ def test_timestamp_format():
     assert naming._TS_RE.fullmatch(ts)
 
 
-def test_stop_state_name():
-    n = naming.stop_state_name("SEQ A", 1, "aging_01", "260904-1430")
-    assert n == "SEQ-A_01_aging-01_resume_260904-1430.json"
-    # 再開サイドカーは出力ファイルと取り違えない
-    assert naming.parse_output(n) is None
-    try:
-        naming.stop_state_name("S", 1, "r", "bad-ts")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("不正な日時トークンで ValueError が出るべき")
+def test_stop_dir():
+    assert naming.stop_dir("SEQ A", 1, "aging_01") == "SEQ-A_01_aging-01"
+    assert naming.stop_dir("myseq", "07", "日本語") == "myseq_07_日本語"
 
 
 def test_input_name():

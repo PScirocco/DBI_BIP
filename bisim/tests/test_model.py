@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from bisim.model import (
-    DEFAULT_MODEL, MODEL_KEYS, SIM_KEYS, AppConfig, Recipe, Sequence,
+    DEFAULT_MODEL, MODEL_KEYS, SIM_KEYS, AppConfig, Recipe, Sequence, StopState,
 )
 
 
@@ -81,6 +81,28 @@ def test_sequence_roundtrip():
     assert len(s2.recipes) == 2
     assert s2.recipes[1].init_stress == "prev"
     assert s2.folders["output"] == r"C:\out"
+
+
+def test_stopstate_roundtrip():
+    st = StopState(recipe_name="日本語01", frames_done=42, frames_total=405,
+                   aging_seconds=12345.6, is_movie=True, timestamp="260909-1030",
+                   dir="_stops/SEQ_01_aging01")
+    assert StopState.from_dict(st.to_dict()).to_dict() == st.to_dict()
+    assert StopState.from_dict(st.to_dict()) == st
+
+
+def test_sequence_stops_roundtrip():
+    s = Sequence(sequence_name="SEQ")
+    s.recipes = [Recipe(recipe_name="aging01", input_image="a.mp4")]
+    assert "stops" not in s.to_dict()                     # 空なら JSON に出さない
+    s.stops["01"] = StopState(recipe_name="aging01", frames_done=3, frames_total=405,
+                              aging_seconds=9.0, is_movie=True, timestamp="260909-1030",
+                              dir="_stops/SEQ_01_aging01")
+    d = s.to_dict()
+    assert list(d["stops"]) == ["01"]
+    s2 = Sequence.from_dict(d)
+    assert s2.to_dict() == d
+    assert s2.stops["01"].frames_done == 3 and s2.stops["01"].is_movie
 
 
 def test_sequence_save_load():

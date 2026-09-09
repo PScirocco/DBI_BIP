@@ -278,10 +278,11 @@ def test_stop_then_resume_same_session():
             win.sequence.folders["input_image"] = str(_COMMON)
             win.sequence.folders["heatmap"] = str(_COMMON)
             win.sequence.recipes = [_movie_recipe("aging01")]
+            win._seq_path = Path(d) / "RSM.seq.json"      # 停止時の自動保存先（ダイアログを出さない）
             win.steps_changed()
             win.run_tab.cmb_sel.setCurrentIndex(0)
 
-            # 1回目: 数フレームで停止（保存Yes → サイドカー生成）
+            # 1回目: 数フレームで停止（保存Yes → チェックポイント生成＋シーケンス自動保存）
             win.run_steps("selected")
             win.worker.sig_progress.connect(
                 lambda pos, n, f, ft, q: win.stop_run() if f >= 1 else None)
@@ -290,6 +291,11 @@ def test_stop_then_resume_same_session():
             st = win._stopped_states[1]
             assert st.is_movie and st.frames_done >= 1
             assert win.resumable_nn_for_selected() == 1
+            # 停止状態がシーケンス JSON に内包されている
+            assert win._seq_path.exists()
+            from bisim.model import Sequence as _Seq
+            assert "01" in _Seq.load(win._seq_path).stops
+            assert (Path(d) / st.dir).is_dir()
 
             # 2回目: 停止位置から再開（confirm Yes）。max_frames で早期に完了扱い
             win._max_frames = 4
@@ -299,6 +305,10 @@ def test_stop_then_resume_same_session():
             assert 1 in win.results
             mv = win.results[1].outputs["movie"]
             assert Path(mv).name == "RSM_01_aging01_movie.mp4"      # 通常完了名
+            # 再開完了 → 停止状態が消えている（メモリ・JSON・実体とも）
+            assert 1 not in win._stopped_states
+            assert "01" not in _Seq.load(win._seq_path).stops
+            assert not (Path(d) / st.dir).exists()
             import cv2
             cap = cv2.VideoCapture(str(mv))
             n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))

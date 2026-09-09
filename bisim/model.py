@@ -31,6 +31,8 @@ DEFAULT_SIM: dict[str, float] = {
 
 INIT_STRESS = ("none", "prev", "file")
 
+CHECKPOINT_ROOT = "_stops"     # 出力フォルダ配下の停止チェックポイント置き場
+
 SEQ_EXT = ".seq.json"
 RECIPE_EXT = ".recipe.json"
 
@@ -54,6 +56,48 @@ def _write_json(path, obj) -> None:
 
 def _read_json(path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+# --------------------------------------------------------------------------- #
+@dataclass
+class StopState:
+    """1ステップの停止状態（仕様 7）。実データ（stat/deg CSV・途中動画）は
+
+    ``<output>/_stops/<dir>/`` に素のファイル名で置き、``Sequence.stops`` が
+    これを参照する（別ファイルのサイドカーは廃止）。``numpy`` を持たないので
+    ``model`` に置ける（``engine`` → ``model`` の一方向 import を保つ）。
+    """
+
+    recipe_name: str = ""
+    frames_done: int = 0            # 停止までに処理した絶対フレーム数
+    frames_total: int = 0
+    aging_seconds: float = 0.0      # 停止までの加速込み Aging 時間
+    is_movie: bool = False
+    timestamp: str = ""             # YYMMDD-HHMM（保存時刻。表示用）
+    dir: str = ""                   # 出力フォルダからの相対（例 "_stops/SEQ_01_aging01"）
+
+    def to_dict(self) -> dict:
+        return {
+            "recipe_name": self.recipe_name,
+            "frames_done": self.frames_done,
+            "frames_total": self.frames_total,
+            "aging_seconds": self.aging_seconds,
+            "is_movie": self.is_movie,
+            "timestamp": self.timestamp,
+            "dir": self.dir,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "StopState":
+        return cls(
+            recipe_name=str(d.get("recipe_name", "")),
+            frames_done=int(d.get("frames_done", 0)),
+            frames_total=int(d.get("frames_total", 0)),
+            aging_seconds=float(d.get("aging_seconds", 0.0)),
+            is_movie=bool(d.get("is_movie", False)),
+            timestamp=str(d.get("timestamp", "")),
+            dir=str(d.get("dir", "")),
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -149,6 +193,7 @@ class Sequence:
     sequence_name: str = "sequence"
     folders: dict = field(default_factory=_fresh_folders)
     recipes: list = field(default_factory=list)   # list[Recipe]
+    stops: dict = field(default_factory=dict)     # NN文字列 -> StopState（停止状態を内包）
 
     @staticmethod
     def recipe_number(index: int) -> str:
@@ -159,11 +204,14 @@ class Sequence:
         return self.recipes.index(recipe)
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "sequence_name": self.sequence_name,
             "folders": {k: str(self.folders.get(k, "")) for k in FOLDER_KEYS},
             "recipes": [r.to_dict() for r in self.recipes],
         }
+        if self.stops:
+            d["stops"] = {nn: st.to_dict() for nn, st in sorted(self.stops.items())}
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Sequence":
@@ -173,10 +221,14 @@ class Sequence:
                 folders[k] = str(v)
         recipes = [Recipe.from_dict(r) for r in (d.get("recipes") or [])
                    if isinstance(r, dict)]
+        stops = {str(nn): StopState.from_dict(sd)
+                 for nn, sd in (d.get("stops") or {}).items()
+                 if isinstance(sd, dict)}
         return cls(
             sequence_name=str(d.get("sequence_name", "sequence")),
             folders=folders,
             recipes=recipes,
+            stops=stops,
         )
 
     def save(self, path) -> None:

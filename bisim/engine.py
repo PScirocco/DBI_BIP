@@ -26,8 +26,14 @@ import cv2
 import numpy as np
 
 from bisim import imio, naming, paramio
-from bisim.model import Recipe, Sequence
+from bisim.model import CHECKPOINT_ROOT, Recipe, Sequence, StopState
 from bisim.paths import SOURCE_DIR
+
+# 停止チェックポイント内の素のファイル名（フォルダ名が識別子。日時なし・常に最新1件）
+_CKPT_STAT = {c: f"stat_{c}.csv" for c in "rgb"}
+_CKPT_DEG = {c: f"deg_{c}.csv" for c in "rgb"}
+_CKPT_MOVIE = "movie.mp4"
+_CKPT_IMAGE = "image.png"
 
 
 class EngineError(RuntimeError):
@@ -226,61 +232,9 @@ class RunResult:
 
 
 # --------------------------------------------------------------------------- #
-#  停止状態（後で読み込んで継続するためのサイドカー。仕様 7）
+#  再開プラン（``StopState`` は仕様 7 のとおり ``bisim.model`` に移動。
+#  ``Sequence.stops`` が停止状態を内包し、実体は ``<output>/_stops/<dir>/``）
 # --------------------------------------------------------------------------- #
-@dataclass
-class StopState:
-    sequence_name: str
-    nn: str
-    recipe_name: str
-    input_image: str
-    heatmap: str
-    is_movie: bool
-    frames_done: int              # 停止までに処理した絶対フレーム数
-    frames_total: int
-    aging_seconds: float          # 停止までの加速込み Aging 時間
-    timestamp: str                # YYMMDD-HHMM（保存名と一致）
-    stat_files: dict = field(default_factory=dict)   # {"r":name,"g":..,"b":..}（出力フォルダ内）
-    movie_file: str = ""          # 部分動画の出力名（あれば）
-
-    def to_dict(self) -> dict:
-        return {
-            "sequence_name": self.sequence_name, "nn": self.nn,
-            "recipe_name": self.recipe_name, "input_image": self.input_image,
-            "heatmap": self.heatmap, "is_movie": self.is_movie,
-            "frames_done": self.frames_done, "frames_total": self.frames_total,
-            "aging_seconds": self.aging_seconds, "timestamp": self.timestamp,
-            "stat_files": dict(self.stat_files), "movie_file": self.movie_file,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "StopState":
-        return cls(
-            sequence_name=str(d.get("sequence_name", "")),
-            nn=str(d.get("nn", "")),
-            recipe_name=str(d.get("recipe_name", "")),
-            input_image=str(d.get("input_image", "")),
-            heatmap=str(d.get("heatmap", "")),
-            is_movie=bool(d.get("is_movie", False)),
-            frames_done=int(d.get("frames_done", 0)),
-            frames_total=int(d.get("frames_total", 0)),
-            aging_seconds=float(d.get("aging_seconds", 0.0)),
-            timestamp=str(d.get("timestamp", "")),
-            stat_files=dict(d.get("stat_files") or {}),
-            movie_file=str(d.get("movie_file", "")),
-        )
-
-    def save(self, path) -> None:
-        import json
-        Path(path).write_text(
-            json.dumps(self.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-
-    @classmethod
-    def load(cls, path) -> "StopState":
-        import json
-        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
-
-
 @dataclass(eq=False)
 class ResumePlan:
     """停止結果からの再開に必要な情報（``run_sequence`` の先頭ステップに適用）。"""
@@ -453,20 +407,15 @@ def write_recipe_outputs(
     sequence_name: str,
     model: DegradationModel,
     model_param: dict,
-    stopped_at=None,        # datetime | "YYMMDD-HHMM"（停止保存時のみ）
-    recipe: "Optional[Recipe]" = None,   # 停止サイドカーに入力名を残すため（任意）
     log=None,
 ) -> dict:
+    """通常完了時の出力（``シーケンス名_NN_レシピ名_種別[_色].拡張子``）。"""
     out_dir = Path(folders["output"])
     out_dir.mkdir(parents=True, exist_ok=True)
     seq, nn, rc = sequence_name, result.nn, result.recipe_name
-    ts = None
-    if stopped_at is not None:
-        ts = stopped_at if isinstance(stopped_at, str) else naming.timestamp(stopped_at)
 
     def outp(kind, color=None, ext="csv"):
-        return out_dir / naming.output_name(seq, nn, rc, kind, color, ext=ext,
-                                            stopped_at=ts)
+        return out_dir / naming.output_name(seq, nn, rc, kind, color, ext=ext)
 
     outputs: dict = {}
 
@@ -488,31 +437,116 @@ def write_recipe_outputs(
         np.savetxt(str(sp), result.state.channel(c), delimiter=",")
         outputs[f"deg_{c}"], outputs[f"stat_{c}"] = dp, sp
 
-    # ---- 停止保存時: 再開用サイドカー（仕様 7）----
-    if ts is not None:
-        state_file = out_dir / naming.stop_state_name(seq, nn, rc, ts)
-        StopState(
-            sequence_name=seq, nn=nn, recipe_name=rc,
-            input_image=(recipe.input_image if recipe else ""),
-            heatmap=(recipe.heatmap if recipe else ""),
-            is_movie=result.is_movie,
-            frames_done=result.frames_absolute, frames_total=result.frames_total,
-            aging_seconds=result.aging_seconds, timestamp=ts,
-            stat_files={c: Path(outputs[f"stat_{c}"]).name for c in "rgb"},
-            movie_file=(Path(outputs["movie"]).name if "movie" in outputs else ""),
-        ).save(state_file)
-        outputs["resume_state"] = state_file
-
     result.outputs = outputs
     if log:
         for p in outputs.values():
             log.io("out", Path(p).name)
         log.action(
             f"{seq}_{nn}_{rc} 出力"
-            + (" [停止保存]" if ts is not None else "")
-            + f" 平均1/劣化率 R={float(np.nanmean(deg['r'])):.3f}"
+            f" 平均1/劣化率 R={float(np.nanmean(deg['r'])):.3f}"
             f" G={float(np.nanmean(deg['g'])):.3f} B={float(np.nanmean(deg['b'])):.3f}")
     return outputs
+
+
+# --------------------------------------------------------------------------- #
+#  停止チェックポイント（仕様 7: Sequence が内包・実体は <output>/_stops/<dir>/）
+# --------------------------------------------------------------------------- #
+def _checkpoint_dir(folders: dict, sequence_name: str, nn, recipe_name: str) -> Path:
+    return (Path(folders["output"]) / CHECKPOINT_ROOT
+            / naming.stop_dir(sequence_name, nn, recipe_name))
+
+
+def write_stop_checkpoint(
+    *,
+    result: RunResult,
+    folders: dict,
+    sequence_name: str,
+    model: DegradationModel,
+    model_param: dict,
+    timestamp: "Optional[str]" = None,
+    log=None,
+) -> tuple:
+    """停止時のチェックポイントを ``<output>/_stops/<dir>/`` に素のファイル名で書く。
+
+    戻り値 ``(StopState, outputs)``。``outputs`` は ⑤結果タブがプレビュー／マップに
+    使う ``{"movie"|"image", "deg_{c}", "stat_{c}"}`` → :class:`pathlib.Path`。
+    既存の同一チェックポイントがあれば作り直す（常に最新1件）。
+    """
+    seq, nn, rc = sequence_name, result.nn, result.recipe_name
+    ts = timestamp or naming.timestamp()
+    ckpt = _checkpoint_dir(folders, seq, nn, rc)
+    if ckpt.exists():
+        shutil.rmtree(ckpt, ignore_errors=True)
+    ckpt.mkdir(parents=True, exist_ok=True)
+
+    outputs: dict = {}
+    if result.is_movie:
+        if result._tmp_video and Path(result._tmp_video).exists():
+            dest = ckpt / _CKPT_MOVIE
+            shutil.move(str(result._tmp_video), str(dest))
+            outputs["movie"] = dest
+    else:
+        if result._img_bgr is not None:
+            dest = ckpt / _CKPT_IMAGE
+            imio.imwrite(dest, result._img_bgr)
+            outputs["image"] = dest
+
+    deg = model.deg_maps(result.state, result.temp_kelvin, model_param)
+    for c in "rgb":
+        dp, sp = ckpt / _CKPT_DEG[c], ckpt / _CKPT_STAT[c]
+        np.savetxt(str(dp), deg[c], delimiter=",")
+        np.savetxt(str(sp), result.state.channel(c), delimiter=",")
+        outputs[f"deg_{c}"], outputs[f"stat_{c}"] = dp, sp
+
+    rel = f"{CHECKPOINT_ROOT}/{ckpt.name}"
+    st = StopState(
+        recipe_name=rc, frames_done=result.frames_absolute,
+        frames_total=result.frames_total, aging_seconds=result.aging_seconds,
+        is_movie=result.is_movie, timestamp=ts, dir=rel)
+    result.outputs = outputs
+    if log:
+        log.action(f"{seq}_{nn}_{rc} 停止チェックポイント保存: {rel}/"
+                   f"（フレーム {st.frames_done}/{st.frames_total}）")
+    return st, outputs
+
+
+def stop_checkpoint_outputs(folders: dict, st: StopState) -> dict:
+    """``StopState.dir`` 配下の素ファイルを ⑤結果タブ用の outputs 辞書にする。"""
+    base = Path(folders["output"]) / st.dir
+    outputs: dict = {}
+    for c in "rgb":
+        outputs[f"deg_{c}"] = base / _CKPT_DEG[c]
+        outputs[f"stat_{c}"] = base / _CKPT_STAT[c]
+    if st.is_movie and (base / _CKPT_MOVIE).exists():
+        outputs["movie"] = base / _CKPT_MOVIE
+    elif (base / _CKPT_IMAGE).exists():
+        outputs["image"] = base / _CKPT_IMAGE
+    return outputs
+
+
+def build_resume_plan(folders: dict, st: StopState) -> tuple:
+    """``StopState`` から :class:`ResumePlan` を作る。戻り値 ``(plan|None, err|None)``。"""
+    base = Path(folders["output"]) / st.dir
+    if not base.is_dir():
+        return None, f"停止チェックポイントが見つかりません: {base}"
+    try:
+        state = StressState.load(*(base / _CKPT_STAT[c] for c in "rgb"))
+    except (OSError, ValueError) as e:
+        return None, f"停止チェックポイントの読み込みに失敗: {e}"
+    video = base / _CKPT_MOVIE
+    if not (st.is_movie and video.exists()):
+        video = None
+    return ResumePlan(state=state, frames_done=st.frames_done,
+                      aging_seconds=st.aging_seconds, video=video), None
+
+
+def remove_stop_checkpoint(folders: dict, st: StopState) -> None:
+    """再開完了時などにチェックポイント実体を消す（``Sequence.stops`` の掃除は呼び出し側）。"""
+    if not st.dir:
+        return
+    base = Path(folders["output"]) / st.dir
+    if base.is_dir():
+        shutil.rmtree(base, ignore_errors=True)
 
 
 def discard_recipe_outputs(result: RunResult) -> None:

@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from bisim import __version__, engine, naming
 from bisim.logio import Logger
-from bisim.model import RECIPE_EXT, SEQ_EXT, AppConfig, Recipe, Sequence
+from bisim.model import RECIPE_EXT, SEQ_EXT, AppConfig, Recipe, Sequence, StopState
 from bisim.paths import APP_CONFIG_PATH
 from bisim.ui import i18n
 from bisim.ui.i18n import off_change, on_change, set_lang, t
@@ -92,7 +92,7 @@ class SimWorker(QThread):
             result=res, folders=self.sequence.folders,
             sequence_name=self.sequence.sequence_name, model=self.model,
             model_param=self.sequence.recipes[int(res.nn) - 1].model_param,
-            recipe=self.sequence.recipes[int(res.nn) - 1], log=self.logger)
+            log=self.logger)
         entry = ResultEntry(nn=int(res.nn), recipe_name=res.recipe_name,
                             is_movie=res.is_movie, outputs=outputs)
         self.sig_step_done.emit(entry.nn, entry)
@@ -130,7 +130,9 @@ class MainWindow(QMainWindow):
         self._seq_path: Path | None = None
         self.results: dict[int, ResultEntry] = {}
         self.current_row: int | None = None
-        self._stopped_states: dict[int, engine.StopState] = {}   # nn -> 停止状態（再開用）
+        # nn(int) -> 停止状態。永続形は self.sequence.stops（NN文字列キー）。両者を同期して持つ
+        self._stopped_states: dict[int, StopState] = {}
+        self._resume_nn: int | None = None   # 「停止位置から再開」実行中のステップ NN
 
         self.model = None
         self.control = engine.RunControl()
@@ -193,9 +195,6 @@ class MainWindow(QMainWindow):
         self.act_recipe_load.triggered.connect(self.load_recipe)
         self.act_recipe_save = self.menu_file.addAction("")
         self.act_recipe_save.triggered.connect(self.save_recipe)
-        self.menu_file.addSeparator()
-        self.act_resume_load = self.menu_file.addAction("")
-        self.act_resume_load.triggered.connect(self.load_stopped_and_resume)
 
         self.menu_lang = self.menuBar().addMenu("")
         grp = QActionGroup(self)
@@ -228,7 +227,6 @@ class MainWindow(QMainWindow):
         self.act_save_as.setText(t("menu.seq.save_as"))
         self.act_recipe_load.setText(t("menu.recipe.load"))
         self.act_recipe_save.setText(t("menu.recipe.save"))
-        self.act_resume_load.setText(t("menu.resume.load"))
         self.menu_lang.setTitle(t("menu.lang"))
         self.act_lang_ja.setText(t("menu.lang.ja"))
         self.act_lang_en.setText(t("menu.lang.en"))
@@ -252,11 +250,16 @@ class MainWindow(QMainWindow):
         self.sequence = seq
         self._seq_path = Path(path)
         self.results.clear()
-        self._stopped_states.clear()
+        # 停止状態はシーケンス JSON に内包（仕様 7）。開いた時点で ④「停止位置から再開」を有効化
+        self._stopped_states = {int(nn): st for nn, st in seq.stops.items()
+                                if nn.isdigit()}
         self.results_tab.clear_results()
         self.current_row = 0 if seq.recipes else None
         self.folders_changed()
         self.steps_changed()
+        if self._stopped_states:
+            self.logger.action(
+                f"停止状態を読込: ステップ {', '.join(f'{n:02d}' for n in sorted(self._stopped_states))}")
         self.logger.action(f"シーケンス読込: {Path(path).name}（レシピ {len(seq.recipes)}）")
         self.statusBar().showMessage(t("status.seq_opened", name=seq.sequence_name), 4000)
 
@@ -400,24 +403,37 @@ class MainWindow(QMainWindow):
         return now - self._t0 - paused
 
     def resumable_nn_for_selected(self) -> int | None:
-        """④の選択ステップに再開できる停止結果があれば NN を返す。"""
+        """④の選択ステップに再開できる停止状態があれば NN を返す。"""
         i = self.run_tab.selected_index()
         if i is None:
             return None
         st = self._stopped_states.get(i + 1)
         return i + 1 if (st is not None and st.is_movie) else None
 
-    def _build_resume_plan(self, st: engine.StopState):
-        out = Path(self.sequence.folders["output"])
-        try:
-            state = engine.StressState.load(*(out / st.stat_files[c] for c in "rgb"))
-        except (OSError, KeyError, ValueError) as e:
-            return None, str(e)
-        video = out / st.movie_file if st.movie_file else None
-        if video is not None and not video.exists():
-            video = None
-        return engine.ResumePlan(state=state, frames_done=st.frames_done,
-                                 aging_seconds=st.aging_seconds, video=video), None
+    # ---- 停止状態（_stopped_states ⇔ sequence.stops）の同期・永続化 ----
+    def _set_stop(self, nn: int, st: StopState) -> None:
+        self._stopped_states[nn] = st
+        self.sequence.stops[f"{nn:02d}"] = st
+
+    def _clear_stop(self, nn: int) -> None:
+        self._stopped_states.pop(nn, None)
+        self.sequence.stops.pop(f"{nn:02d}", None)
+
+    def _autosave_sequence(self) -> None:
+        """停止状態を書いた後、シーケンス JSON に反映する（仕様 7）。
+
+        保存先が未定なら「名前を付けて保存」を促す（方針 doc の想定どおり）。
+        """
+        if self._seq_path is not None:
+            try:
+                self.sequence.save(self._seq_path)
+                self.logger.io("out", self._seq_path.name)
+                self.logger.action(f"シーケンス自動保存（停止状態を反映）: {self._seq_path.name}")
+            except OSError as e:
+                QMessageBox.warning(self, t("dlg.err.title"), str(e))
+        else:
+            QMessageBox.information(self, t("run.save.title"), t("dlg.stop_needs_save"))
+            self.save_sequence(as_new=True)
 
     def run_steps(self, mode: str):
         if self.worker is not None:
@@ -427,16 +443,18 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, t("run.msg.title"), t("run.msg.nosteps"))
             return
         resume_plan = None
+        self._resume_nn = None
         if mode == "resume":
             only = self.run_tab.selected_index()
             st = self._stopped_states.get(only + 1) if only is not None else None
             if st is None:
                 QMessageBox.information(self, t("run.resume.title"), t("run.msg.no_resume"))
                 return
-            resume_plan, err = self._build_resume_plan(st)
+            resume_plan, err = engine.build_resume_plan(self.sequence.folders, st)
             if err:
                 QMessageBox.warning(self, t("run.resume.title"), err)
                 return
+            self._resume_nn = only + 1
             ans = QMessageBox.question(
                 self, t("run.resume.title"),
                 t("run.resume.msg", name=st.recipe_name, f=st.frames_done,
@@ -532,6 +550,9 @@ class MainWindow(QMainWindow):
         saved = None
         if stopped and self.worker is not None and self.worker.stopped_result is not None:
             saved = self._handle_stopped(self.worker.stopped_result)
+        elif not stopped and self._resume_nn is not None:
+            self._finish_resume(self._resume_nn)
+        self._resume_nn = None
         self.worker = None
         self.run_tab.on_finished(stopped)
         self.run_tab.update_resume_btn()
@@ -555,54 +576,31 @@ class MainWindow(QMainWindow):
             engine.discard_recipe_outputs(res)
             self.logger.action(f"{self.sequence.sequence_name}_{res.nn}_{res.recipe_name} 停止（破棄）")
             return False
-        ts = datetime.now()
-        outputs = engine.write_recipe_outputs(
+        ts = naming.timestamp(datetime.now())
+        st, outputs = engine.write_stop_checkpoint(
             result=res, folders=self.sequence.folders,
             sequence_name=self.sequence.sequence_name, model=self.model,
             model_param=recipe.model_param if recipe else {},
-            recipe=recipe, stopped_at=ts, log=self.logger)
+            timestamp=ts, log=self.logger)
+        self._set_stop(nn, st)
+        self._autosave_sequence()
         self.results[nn] = ResultEntry(nn=nn, recipe_name=res.recipe_name,
                                        is_movie=res.is_movie, outputs=outputs,
-                                       stopped_at=naming.timestamp(ts))
+                                       stopped_at=ts)
         self.results_tab.add_result(nn)
-        if "resume_state" in outputs:
-            try:
-                self._stopped_states[nn] = engine.StopState.load(outputs["resume_state"])
-            except (OSError, ValueError):
-                pass
+        self.run_tab.update_resume_btn()
         return True
 
-    # ---- resume from a stopped result file (app が再起動された後など) ----
-    def load_stopped_and_resume(self):
-        if self.worker is not None:
+    def _finish_resume(self, nn: int):
+        """「停止位置から再開」が通常完了した → 停止状態を消してシーケンス JSON を更新。"""
+        st = self._stopped_states.get(nn)
+        if st is None:
             return
-        start = self.sequence.folders.get("output", "")
-        path, _ = QFileDialog.getOpenFileName(
-            self, t("menu.resume.load"), start, t("dlg.resume_filter"))
-        if not path:
-            return
-        try:
-            st = engine.StopState.load(path)
-        except (OSError, ValueError) as e:
-            QMessageBox.critical(self, t("dlg.err.title"), t("dlg.load_fail", msg=str(e)))
-            return
-        if not st.is_movie:
-            QMessageBox.information(self, t("run.resume.title"), t("dlg.resume_notmovie"))
-            return
-        idxs = [i for i, r in enumerate(self.sequence.recipes)
-                if r.recipe_name == st.recipe_name]
-        if not idxs:
-            QMessageBox.warning(self, t("run.resume.title"),
-                                t("dlg.resume_nomatch", name=st.recipe_name))
-            return
-        idx = idxs[0]
-        self._stopped_states[idx + 1] = st
-        self.current_row = idx
-        self.steps_changed()
-        self.steps_tab._select_row(idx)
-        self.run_tab.cmb_sel.setCurrentIndex(idx)
-        self.statusBar().showMessage(t("status.resumed", name=st.recipe_name), 4000)
-        self.run_steps("resume")
+        engine.remove_stop_checkpoint(self.sequence.folders, st)
+        self._clear_stop(nn)
+        self._autosave_sequence()
+        self.logger.action(f"ステップ {nn:02d} を停止位置から再開し完了（停止状態を消去）")
+        self.run_tab.update_resume_btn()
 
     def _on_error(self, msg):
         self._cleanup_worker()

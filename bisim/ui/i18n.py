@@ -49,7 +49,6 @@ STR: dict[str, dict[str, str]] = {
     "menu.seq.save_as": {"ja": "シーケンスに名前を付けて保存…", "en": "Save sequence as…"},
     "menu.recipe.load": {"ja": "レシピを読込…", "en": "Load recipe…"},
     "menu.recipe.save": {"ja": "選択レシピを保存…", "en": "Save selected recipe…"},
-    "menu.resume.load": {"ja": "停止結果を読み込んで再開…", "en": "Load stopped result & resume…"},
     "menu.lang": {"ja": "言語 / Language", "en": "言語 / Language"},
     "menu.lang.ja": {"ja": "日本語 (JP)", "en": "日本語 (JP)"},
     "menu.lang.en": {"ja": "English (EN)", "en": "English (EN)"},
@@ -64,12 +63,10 @@ STR: dict[str, dict[str, str]] = {
     "status.stopped": {"ja": "停止しました（保存済み／再開可）", "en": "Stopped (saved / resumable)"},
     "status.stopped_discard": {"ja": "停止しました（破棄）", "en": "Stopped (discarded)"},
     "status.run_done": {"ja": "実行完了", "en": "Run complete"},
-    "status.resumed": {"ja": "停止位置から再開: {name}", "en": "Resumed from stop: {name}"},
 
-    "dlg.resume_filter": {"ja": "停止結果 (*_resume_*.json)", "en": "Stopped result (*_resume_*.json)"},
-    "dlg.resume_nomatch": {"ja": "この停止結果のレシピ「{name}」が現在のシーケンスに見つかりません。",
-                           "en": "Recipe \"{name}\" from this stopped result is not in the current sequence."},
-    "dlg.resume_notmovie": {"ja": "静止画ステップは再開の必要がありません。", "en": "Still-image steps do not need resume."},
+    "dlg.stop_needs_save": {
+        "ja": "停止状態はシーケンスに保存されます。保存先が未定です — 名前を付けて保存してください。",
+        "en": "The stop state is stored in the sequence. No file yet — please save the sequence."},
 
     "dlg.seq_filter": {"ja": "シーケンス (*.seq.json)", "en": "Sequence (*.seq.json)"},
     "dlg.recipe_filter": {"ja": "レシピ (*.recipe.json)", "en": "Recipe (*.recipe.json)"},

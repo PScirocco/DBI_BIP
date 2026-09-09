@@ -37,10 +37,10 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
   ／ D（T8 中断・停止・再開）／ E（T9 パッケージング：`installer/bisim.spec` ＋ `build_exe.ps1` ＋ `docs/EXEビルド手順書.md`）。
   劣化コアは `_internal/source/main.py` を datas 同梱＋ファイルパスロード＝`engine._load_burn_fn`。
 - **担当者が別PC（EXE）で評価チェック完了**（`docs/progress/260907_評価チェックシート_checked.md`）。
-  評価メモ5件を `docs/progress/260909_評価反映_実装方針.md` の方針で反映中：
-  フェーズ1（Sim CSV I/O・フォルダ永続化）／ フェーズ3（シーケンス名↔ファイル名・名前の注意書き）実装済み、
-  フェーズ2（Stop 情報を Sequence JSON に内包するリデザイン）は方針確定・未実装。
-- 残：フェーズ2 → フェーズF（T10 IP設計者コア差し替え・結合試験・原理確認。10月初〜、コア受領後）。
+  評価メモ5件を `docs/progress/260909_評価反映_実装方針.md` の方針で反映：**フェーズ1〜3 実装済み・commit 済み**。
+  フェーズ1（Sim CSV I/O・フォルダ永続化）／ フェーズ3（シーケンス名↔ファイル名・名前の注意書き）＝commit 5a6d8c2、
+  フェーズ2（Stop 情報を Sequence JSON の `stops` に内包＋`_stops/` チェックポイント。サイドカー廃止）＝selftest 56/56。
+- 残：フェーズF（T10 IP設計者コア差し替え・結合試験・原理確認。10月初〜、コア受領後）。
 - IP設計者のアルゴリズムコア着手は**10月初め**。統合 → 原理確認 → 社内試用 を経て10月末完成予定。
 - 当面先/スコープ外：出力マップの画像フォーマット化＋専用ビューア、CPU並列（画像分割）、
   DBI/BIP補正実装、実機データ比較・モデル修正。
@@ -51,19 +51,21 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | モジュール | 役割 | フェーズ |
 |---|---|---|
 | `paths.py` | SOURCE_DIR / APP_DIR / LOG_DIR / 既定フォルダ6種 | A |
-| `model.py` | `Recipe` / `Sequence` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） | A |
-| `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name`（`_`→`-`）、`stop_state_name`（`_resume_` サイドカー） | A/D |
+| `model.py` | `Recipe` / `Sequence`（`stops` に停止状態を内包） / `StopState` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） | A/D |
+| `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name`（`_`→`-`）、`stop_dir`（`_stops/` チェックポイントのフォルダ名） | A/D |
 | `paramio.py` | model/sim パラメータ CSV I/O（CLI版 `degparam_mm.csv` / `simconf.csv` と互換） | B |
 | `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） | B |
-| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `StopState`・`ResumePlan`（停止・再開）/ `run_recipe`（`resume_from`/`resume_video` で連続動画）/ `run_sequence` / 出力の確定・破棄 / `format_aging` | B/D |
+| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画）/ `run_sequence` / 出力の確定・破棄 / `format_aging` | B/D |
 | `logio.py` | `Logger`（`_log_BISim/` 日付ローテーション、容量上限、画面表示 listener） | B |
 | `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ） | C/D |
 | `installer/` | `bisim.spec`（PyInstaller 6.x・onedir）/ `bisim_launcher.py` / `build_exe.ps1` / `README.md`。手順は `docs/EXEビルド手順書.md` | E |
 
 - 実行：`python -m bisim`（GUI 起動）／ `python -m bisim --info`（データ層＋エンジン確認）／ **テスト：`python -m bisim.selftest`（pytest 不要、テストモジュールごとに別プロセス。`test_ui` は `QT_QPA_PLATFORM=offscreen` 推奨。個別は `python -m bisim.selftest test_engine`）**
 - 依存：`bisim/requirements.txt`（prototype と同じ ＋ pytest）
-- ファイル命名規則：入力 `レシピ名_種別[_色].ext` ／ 出力 `シーケンス名_NN_レシピ名_種別[_色].ext`、停止保存は末尾 `_YYMMDD-HHMM` ＋ 再開用 `シーケンス名_NN_レシピ名_resume_YYMMDD-HHMM.json`。色トークンは `deg`/`stat` のみ
-- 中断＝メモリ保持・出力なし・計算時間フリーズ。停止＝保存確認→日時付き出力＋`StopState` サイドカー。再開＝④タブのボタン（同一起動中）／メニュー「停止結果を読み込んで再開…」（再起動後）
+- ファイル命名規則：入力 `レシピ名_種別[_色].ext` ／ 出力 `シーケンス名_NN_レシピ名_種別[_色].ext`。色トークンは `deg`/`stat` のみ。
+  停止チェックポイントは `<出力>/_stops/<シーケンス名_NN_レシピ名>/` に素ファイル名（`stat_{c}.csv` / `deg_{c}.csv` / `movie.mp4`、日時なし・最新1件）
+- 中断＝メモリ保持・出力なし・計算時間フリーズ。停止＝保存確認→`_stops/` チェックポイント＋シーケンス JSON の `stops["NN"]`（`model.StopState`）に内包・自動保存。
+  再開＝④タブ「▶↻ 停止位置から再開」（同一起動中も、再起動後「シーケンスを開く」で `stops` 復元後も同じボタン）。再開が通常完了したら `stops` エントリと `_stops/` を掃除
 
 ## GUI プロトタイプ（レビュー済み・参照用）
 

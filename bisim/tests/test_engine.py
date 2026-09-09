@@ -101,11 +101,15 @@ def test_run_recipe_stop_midway():
                                 nn="01", model=_model(), control=ctl, progress_cb=cb)
         assert res.stopped and res.frames_done == 2
 
-        out = engine.write_recipe_outputs(result=res, folders=_folders(d),
-                                          sequence_name="T", model=_model(),
-                                          model_param=r.model_param,
-                                          stopped_at="260904-1430")
-        assert Path(out["stat_r"]).name == "T_01_aging01_stat_r_260904-1430.csv"
+        st, out = engine.write_stop_checkpoint(
+            result=res, folders=_folders(d), sequence_name="T", model=_model(),
+            model_param=r.model_param, timestamp="260904-1430")
+        assert st.dir == "_stops/T_01_aging01"
+        assert st.frames_done == 2 and st.is_movie
+        base = Path(d) / "_stops" / "T_01_aging01"
+        assert Path(out["stat_r"]) == base / "stat_r.csv"
+        assert (base / "stat_r.csv").exists() and (base / "deg_r.csv").exists()
+        assert (base / "movie.mp4").exists()
 
 
 def test_run_recipe_stop_discard():
@@ -152,7 +156,7 @@ def _movie_count(path) -> int:
 
 
 def test_stop_then_resume_continuous_video():
-    """停止 → サイドカー保存 → 停止位置から再開（連続動画・Aging 積み増し）。"""
+    """停止 → チェックポイント保存 → 停止位置から再開（連続動画・Aging 積み増し）。"""
     with tempfile.TemporaryDirectory() as d:
         r = Recipe(recipe_name="aging01", input_image=_MOVIE, heatmap=_MOVIE_HT)
         f = _folders(d)
@@ -168,22 +172,21 @@ def test_stop_then_resume_continuous_video():
         assert res1.stopped and res1.frames_done == 3 and res1.resumed_from == 0
         assert res1.frames_absolute == 3
 
-        out1 = engine.write_recipe_outputs(
+        st, out1 = engine.write_stop_checkpoint(
             result=res1, folders=f, sequence_name="S", model=_model(),
-            model_param=r.model_param, recipe=r, stopped_at="260904-1430")
-        assert "resume_state" in out1
-        st = engine.StopState.load(out1["resume_state"])
+            model_param=r.model_param, timestamp="260904-1430")
         assert st.frames_done == 3 and st.is_movie and st.frames_total == 405
         assert st.aging_seconds > 0
-        assert engine.StopState.from_dict(st.to_dict()).to_dict() == st.to_dict()
+        assert st.dir == "_stops/S_01_aging01"
         n1 = _movie_count(out1["movie"])
 
-        # ---- 再開 ----
-        state = engine.StressState.load(*(Path(out1[f"stat_{c}"]) for c in "rgb"))
+        # ---- 再開（build_resume_plan 経由）----
+        plan, err = engine.build_resume_plan(f, st)
+        assert err is None and plan.frames_done == 3 and plan.video is not None
         res2 = engine.run_recipe(
             recipe=r, folders=f, sequence_name="S", nn="01", model=_model(),
-            initial_state=state, resume_from=st.frames_done,
-            resume_video=Path(out1["movie"]), resume_aging_seconds=st.aging_seconds,
+            initial_state=plan.state, resume_from=plan.frames_done,
+            resume_video=plan.video, resume_aging_seconds=plan.aging_seconds,
             max_frames=4)
         assert res2.resumed_from == 3 and res2.frames_done == 4
         assert res2.aging_seconds > st.aging_seconds        # 積み増しされている
@@ -194,6 +197,10 @@ def test_stop_then_resume_continuous_video():
         n2 = _movie_count(out2["movie"])
         assert n2 >= n1 + 2                                  # 先頭連結ぶん + 新規
 
+        # 再開完了後の後片付け
+        engine.remove_stop_checkpoint(f, st)
+        assert not (Path(d) / st.dir).exists()
+
 
 def test_run_sequence_resume_plan():
     with tempfile.TemporaryDirectory() as d:
@@ -203,15 +210,11 @@ def test_run_sequence_resume_plan():
         r1 = engine.run_recipe(recipe=seq.recipes[0], folders=seq.folders,
                                sequence_name="SEQ", nn="01", model=_model(),
                                control=ctl, max_frames=3)
-        out1 = engine.write_recipe_outputs(
+        st, _ = engine.write_stop_checkpoint(
             result=r1, folders=seq.folders, sequence_name="SEQ", model=_model(),
-            model_param=seq.recipes[0].model_param, recipe=seq.recipes[0],
-            stopped_at="260904-1430")
-        st = engine.StopState.load(out1["resume_state"])
-        plan = engine.ResumePlan(
-            state=engine.StressState.load(*(Path(out1[f"stat_{c}"]) for c in "rgb")),
-            frames_done=st.frames_done, aging_seconds=st.aging_seconds,
-            video=Path(out1["movie"]))
+            model_param=seq.recipes[0].model_param, timestamp="260904-1430")
+        plan, err = engine.build_resume_plan(seq.folders, st)
+        assert err is None
         results = engine.run_sequence(sequence=seq, model=_model(), only_index=0,
                                       resume=plan, max_frames=3)
         assert results[0].resumed_from == 3
