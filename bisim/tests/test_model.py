@@ -15,10 +15,27 @@ def test_recipe_defaults():
     assert all(len(r.model_param[k]) == 3 for k in MODEL_KEYS)
     assert set(r.sim_param) == set(SIM_KEYS)
     assert r.init_stress == "none"
+    assert r.heatmap_mode == "file" and r.fixed_temp_c == 25.0
     # 既定はインスタンス間で共有されない
     r2 = Recipe()
     r.model_param["N"][0] = 99.0
     assert r2.model_param["N"][0] == DEFAULT_MODEL["N"][0]
+
+
+def test_recipe_fixed_heatmap_roundtrip():
+    r = Recipe(recipe_name="pq01", input_image="a.png", heatmap="",
+              heatmap_mode="fixed", fixed_temp_c=40.0)
+    r2 = Recipe.from_dict(r.to_dict())
+    assert r2.to_dict() == r.to_dict()
+    assert r2.heatmap_mode == "fixed" and r2.fixed_temp_c == 40.0
+    assert r.validate() == []
+
+
+def test_recipe_from_dict_lenient_heatmap_mode():
+    r = Recipe.from_dict({"recipe_name": "r", "heatmap_mode": "bogus",
+                          "fixed_temp_c": "not-a-number"})
+    assert r.heatmap_mode == "file"          # 不正値は既定にフォールバック
+    assert r.fixed_temp_c == 25.0
 
 
 def test_recipe_kind():

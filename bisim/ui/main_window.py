@@ -472,7 +472,8 @@ class MainWindow(QMainWindow):
             only = None
             check = list(range(len(rs)))
         for i in check:
-            if not rs[i].input_image or not rs[i].heatmap:
+            needs_heatmap = rs[i].heatmap_mode != "fixed"
+            if not rs[i].input_image or (needs_heatmap and not rs[i].heatmap):
                 QMessageBox.warning(self, t("run.msg.title"), t("run.msg.unset", n=i + 1))
                 return
         if not self._ensure_model():

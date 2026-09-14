@@ -73,6 +73,31 @@ def test_run_recipe_still():
         assert all(Path(p).exists() for p in out.values())
 
 
+def test_run_recipe_still_fixed_temp():
+    """ヒートマップなし（固定温度）: IP設計者レビュー2 (2)。"""
+    with tempfile.TemporaryDirectory() as d:
+        r = Recipe(recipe_name="pq01", input_image=_STILL, heatmap="",
+                  heatmap_mode="fixed", fixed_temp_c=40.0)
+        res = engine.run_recipe(recipe=r, folders=_folders(d), sequence_name="T",
+                                nn="01", model=_model())
+        assert res.frames_done == 1 and not res.stopped
+        assert np.allclose(res.temp_kelvin, 40.0 + 273.0)   # パネル全面が固定温度
+
+
+def test_run_recipe_movie_fixed_temp():
+    with tempfile.TemporaryDirectory() as d:
+        r = Recipe(recipe_name="aging01", input_image=_MOVIE, heatmap="",
+                  heatmap_mode="fixed", fixed_temp_c=50.0)
+        res = engine.run_recipe(recipe=r, folders=_folders(d), sequence_name="T",
+                                nn="01", model=_model(), max_frames=3)
+        assert res.is_movie and res.frames_done == 3 and not res.stopped
+        assert np.allclose(res.temp_kelvin, 50.0 + 273.0)
+        out = engine.write_recipe_outputs(result=res, folders=_folders(d),
+                                          sequence_name="T", model=_model(),
+                                          model_param=r.model_param)
+        assert Path(out["movie"]).exists()
+
+
 def test_run_recipe_movie_limited():
     with tempfile.TemporaryDirectory() as d:
         r = Recipe(recipe_name="aging01", input_image=_MOVIE, heatmap=_MOVIE_HT)

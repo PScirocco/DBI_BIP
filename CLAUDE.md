@@ -27,7 +27,7 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `AMOLED_Image_sticking_prevention_compensation_v01.pptx`（2018, Matsui） | DBI補正アルゴリズムの理論。劣化モデルの根拠 |
 | `Platform Concept for DBI & BIP development.pptx`（2026.07, Matsui & Isobe） | シミュレータ＋DBI/BIP評価プラットフォームの構想 |
 
-## 現在の状況（2026-09-09）
+## 現在の状況（2026-09-14）
 
 - UX検証プロトタイプ（`prototype/`）は完成、**2026-09-03 に IP設計者レビュー実施済み**。
 - レビュー結果を反映した**本番GUIを新パッケージ `bisim/` として実装中**（プロトタイプは参照用に残す）。
@@ -40,7 +40,12 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
   評価メモ5件を `docs/progress/260909_評価反映_実装方針.md` の方針で反映：**フェーズ1〜3 実装済み・commit 済み**。
   フェーズ1（Sim CSV I/O・フォルダ永続化）／ フェーズ3（シーケンス名↔ファイル名・名前の注意書き）＝commit 5a6d8c2、
   フェーズ2（Stop 情報を Sequence JSON の `stops` に内包＋`_stops/` チェックポイント。サイドカー廃止）＝selftest 56/56。
-- 残：フェーズF（T10 IP設計者コア差し替え・結合試験・原理確認。10月初〜、コア受領後）。
+- **2026-09-10 EXE配布 → IP設計者2回目レビュー**（`docs/progress/260910_DBI&BIP_prog_mtg.txt`）。指摘3件＋保留1件：
+  (1) ログのセッション分割 → **実装済み**（`logio.Logger`、1ファイルの大きさ感は従来の日次ログ相当を維持）、
+  (2) ヒートマップなし＝パネル全面固定温度 → **実装済み**（`Recipe.heatmap_mode`/`fixed_temp_c`、③タブにチェックボックス＋数値入力）、
+  (3) AGING_TIME を目標時間として機能させる（秒単位。超過で打切り／不足で動画を周回連結） → **未着手**（設計は `docs/progress/260910_評価反映2_実装方針.md` に記載、`run_recipe` の中核ロジック変更が必要で規模大）、
+  【保留】パネル表示周波数対応 → 対応不要（着手しない）。
+- 残：上記(3) → フェーズF（T10 IP設計者コア差し替え・結合試験・原理確認。10月初〜、コア受領後）。
 - IP設計者のアルゴリズムコア着手は**10月初め**。統合 → 原理確認 → 社内試用 を経て10月末完成予定。
 - 当面先/スコープ外：出力マップの画像フォーマット化＋専用ビューア、CPU並列（画像分割）、
   DBI/BIP補正実装、実機データ比較・モデル修正。
@@ -51,12 +56,12 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | モジュール | 役割 | フェーズ |
 |---|---|---|
 | `paths.py` | SOURCE_DIR / APP_DIR / LOG_DIR / 既定フォルダ6種 | A |
-| `model.py` | `Recipe` / `Sequence`（`stops` に停止状態を内包） / `StopState` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） | A/D |
+| `model.py` | `Recipe`（`heatmap_mode`/`fixed_temp_c` でヒートマップなし＝固定温度に対応） / `Sequence`（`stops` に停止状態を内包） / `StopState` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） | A/D |
 | `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name`（`_`→`-`）、`stop_dir`（`_stops/` チェックポイントのフォルダ名） | A/D |
 | `paramio.py` | model/sim パラメータ CSV I/O（CLI版 `degparam_mm.csv` / `simconf.csv` と互換） | B |
 | `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） | B |
-| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画）/ `run_sequence` / 出力の確定・破棄 / `format_aging` | B/D |
-| `logio.py` | `Logger`（`_log_BISim/` 日付ローテーション、容量上限、画面表示 listener） | B |
+| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に）/ `run_sequence` / 出力の確定・破棄 / `format_aging` | B/D |
+| `logio.py` | `Logger`（`_log_BISim/` セッションローテーション＝起動ごとに新ファイル。容量超過時は同一セッション内でも新パートへ、総容量上限、画面表示 listener） | B |
 | `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ） | C/D |
 | `installer/` | `bisim.spec`（PyInstaller 6.x・onedir）/ `bisim_launcher.py` / `build_exe.ps1` / `README.md`。手順は `docs/EXEビルド手順書.md` | E |
 
@@ -82,7 +87,8 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 - `docs/GUI仕様.md` — 本番GUIの確定仕様（Config構造・命名規則・タブ別仕様・状態遷移）。9月実装フェーズの基準
 - `docs/実装計画.md` — 9月フェーズの実装タスク（T1〜T10、フェーズA〜Fに区分、この順で進める）。チェックボックスで進捗管理。フェーズ完了判定＝全チェック＋selftest 全pass＋commit
 - `docs/EXEビルド手順書.md` — PyInstaller で EXE を作る手順（前提・ビルド・確認・トラブルシュート・onefile）
-- `docs/progress/` — 進捗報告・レビュー記録（`260903_*`）・評価チェック結果（`260907_評価チェックシート_checked.md`）・評価反映方針（`260909_評価反映_実装方針.md`）
+- `docs/progress/` — 進捗報告・レビュー記録（`260903_*`）・評価チェック結果（`260907_評価チェックシート_checked.md`）・
+  評価反映方針（`260909_評価反映_実装方針.md`）・IP設計者2回目レビュー原文（`260910_DBI&BIP_prog_mtg.txt`）と反映方針（`260910_評価反映2_実装方針.md`）
 - `docs/理解と方針.md` — コードと資料の対応、モデル式の解説、実装ステータス、GUI方針
 - 図解（Artifact, 要ログイン）: https://claude.ai/code/artifact/1d4f42d1-9610-4952-b669-e83fc9571caf
   （時間×電流の履歴 / Δη₁・Δη₂の2成分分解 / Iref換算 / コード対応）

@@ -129,6 +129,23 @@ def test_add_edit_recipe_via_tabs():
     _close(win)
 
 
+def test_fixed_heatmap_checkbox_via_config_tab():
+    if not _pyside_ok():
+        return
+    win = _new_window()
+    win.steps_tab._add()
+    cfg = win.config_tab
+    assert cfg.ed_ht.isEnabled() and not cfg.sp_fixed_temp.isEnabled()   # 既定は file モード
+    cfg.cb_ht_fixed.setChecked(True)
+    cfg.sp_fixed_temp.setValue(45.0)
+    assert not cfg.ed_ht.isEnabled() and not cfg.b_ht.isEnabled()
+    assert cfg.sp_fixed_temp.isEnabled()
+    assert cfg._collect_into_recipe()
+    r = win.sequence.recipes[0]
+    assert r.heatmap_mode == "fixed" and r.fixed_temp_c == 45.0
+    _close(win)
+
+
 def test_folders_tab_reflects_sequence():
     if not _pyside_ok():
         return
@@ -254,6 +271,28 @@ def test_run_small_sequence_end_to_end():
         win.results_tab.view_deg.reload()
         win.results_tab.view_stat.reload()
         _close(win)   # tempdir を消す前に VideoCapture を解放
+
+
+def test_run_sequence_with_fixed_heatmap_end_to_end():
+    """ヒートマップなし（固定温度）: IP設計者レビュー2 (2)。ヒートマップファイル無しで実行できる。"""
+    if not _pyside_ok():
+        return
+    from bisim.model import Recipe
+    win = _new_window()
+    win._max_frames = 3
+    with tempfile.TemporaryDirectory() as d:
+        win.sequence.sequence_name = "SEQ_FIXEDHT"
+        win.sequence.folders["output"] = d
+        win.sequence.folders["input_image"] = str(_COMMON)
+        win.sequence.folders["heatmap"] = str(_COMMON)
+        win.sequence.recipes = [Recipe(recipe_name="aging01", input_image=_MOVIE, heatmap="",
+                                       heatmap_mode="fixed", fixed_temp_c=35.0)]
+        win.steps_changed()
+        win.run_steps("all")
+        _wait_idle(win)
+        assert 1 in win.results
+        assert Path(win.results[1].outputs["movie"]).exists()
+        _close(win)
 
 
 def _wait_idle(win, timeout=90):

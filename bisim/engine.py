@@ -273,28 +273,37 @@ def run_recipe(
     log=None,
 ) -> RunResult:
     control = control or RunControl()
+    fixed_temp = recipe.heatmap_mode == "fixed"
     in_dir = Path(folders["input_image"])
     ht_dir = Path(folders["heatmap"])
     path_img = in_dir / recipe.input_image
-    path_ht = ht_dir / recipe.heatmap
+    path_ht = None if fixed_temp else ht_dir / recipe.heatmap
     if not path_img.exists():
         raise EngineError(f"入力画像が見つかりません: {path_img}")
-    if not path_ht.exists():
+    if path_ht is not None and not path_ht.exists():
         raise EngineError(f"ヒートマップが見つかりません: {path_ht}")
 
-    sim = recipe.sim_param
+    # 固定温度モード（ヒートマップなし。仕様: パネル全面を固定温度で計算）：
+    # source/main.py は無改変のまま、ht の中身に依らず一定温度になるよう
+    # TMP_L=TMP_H=固定温度 として渡す（(ht/255)*(TMP_H-TMP_L)+TMP_L が定数になる）
+    sim = dict(recipe.sim_param)
+    if fixed_temp:
+        sim["TMP_L"] = sim["TMP_H"] = float(recipe.fixed_temp_c)
     accel = float(sim["ACCEL_RATIO"])
     tmp_l_k = float(sim["TMP_L"]) + 273.0
     tmp_h_k = float(sim["TMP_H"]) + 273.0
     is_movie = path_img.suffix.lower() == ".mp4"
     if log:
         log.io("in", path_img.name)
-        log.io("in", path_ht.name)
+        if fixed_temp:
+            log.action(f"固定温度 {recipe.fixed_temp_c:g}℃ でヒートマップ代用")
+        else:
+            log.io("in", path_ht.name)
 
     # ---- 入力サイズ確定 ----
     if is_movie:
         cap = cv2.VideoCapture(str(path_img))
-        cap_ht = cv2.VideoCapture(str(path_ht))
+        cap_ht = None if fixed_temp else cv2.VideoCapture(str(path_ht))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -302,12 +311,13 @@ def run_recipe(
         dt = 1.0 / fps
     else:
         img0 = imio.imread(path_img)
-        ht0 = imio.imread(path_ht)
-        if img0 is None or ht0 is None:
+        ht0 = None if fixed_temp else imio.imread(path_ht)
+        if img0 is None or (not fixed_temp and ht0 is None):
             raise EngineError(
                 f"画像を読めません: {path_img if img0 is None else path_ht}")
         height, width = img0.shape[:2]
         fps, frames_total, dt = 0.0, 1, 0.0
+    ht_dummy = np.zeros((height, width, 3), dtype=np.uint8) if fixed_temp else None
 
     # ---- 初期ストレス ----
     if initial_state is None:
@@ -351,7 +361,8 @@ def run_recipe(
             if log:
                 log.action(f"再開: 先頭 {copied}/{start} フレームを部分動画から連結")
             cap.set(cv2.CAP_PROP_POS_FRAMES, start)
-            cap_ht.set(cv2.CAP_PROP_POS_FRAMES, start)
+            if cap_ht is not None:
+                cap_ht.set(cv2.CAP_PROP_POS_FRAMES, start)
         try:
             for _i in range(start, end):
                 while control.paused and not control.stopped:
@@ -360,8 +371,13 @@ def run_recipe(
                     stopped = True
                     break
                 ok1, img = cap.read()
-                ok2, ht = cap_ht.read()
-                if not ok1 or not ok2:
+                if fixed_temp:
+                    ht = ht_dummy
+                else:
+                    ok2, ht = cap_ht.read()
+                    if not ok2:
+                        break
+                if not ok1:
                     break
                 model.update(dt, img, ht, state, recipe.model_param, sim)
                 last_temp = _temp(ht)
@@ -373,14 +389,16 @@ def run_recipe(
                     progress_cb(frames_done, end - start, img)
         finally:
             cap.release()
-            cap_ht.release()
+            if cap_ht is not None:
+                cap_ht.release()
             writer.release()
     else:
         if control.stopped:
             stopped = True
         else:
-            model.update(dt, img0, ht0, state, recipe.model_param, sim)
-            last_temp = _temp(ht0)
+            ht0_eff = ht_dummy if fixed_temp else ht0
+            model.update(dt, img0, ht0_eff, state, recipe.model_param, sim)
+            last_temp = _temp(ht0_eff)
             frames_done = 1
             img_last = img0
             if progress_cb:

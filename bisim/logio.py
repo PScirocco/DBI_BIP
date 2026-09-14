@@ -1,8 +1,10 @@
 """ログ（T5 / 仕様 6）
 
 - 出力先: アプリのあるフォルダ直下 ``_log_BISim/``（無ければ作成）
-- 日付ローテーション: ``BISim_YYMMDD.log``（1日1ファイル）
-- 総容量が上限(MB)を超えたら古い日付から削除
+- **セッションローテーション**（IP設計者レビュー2 (1)）: アプリ起動ごとに新しいファイル
+  ``BISim_YYMMDD-HHMMSS.log``。1ファイルの大きさ感は従来の日次ログと同程度に保つため、
+  同一セッション中でもファイルが上限(MB)に達したら ``..._02.log`` ``..._03.log`` … と続ける
+- 総容量が上限(MB)を超えたら古いファイルから削除（従来どおり）
 - 画面表示用に listener を登録できる
 """
 from __future__ import annotations
@@ -22,6 +24,8 @@ class Logger:
         self.max_mb = float(max_mb)
         self.dir.mkdir(parents=True, exist_ok=True)
         self._listeners: list[Callable[[str], None]] = []
+        self._session = datetime.now().strftime("%y%m%d-%H%M%S")   # 起動(セッション)ごとに固定
+        self._part = 1
 
     # -- 購読（画面表示用）--
     def add_listener(self, cb: Callable[[str], None]) -> None:
@@ -46,13 +50,26 @@ class Logger:
         self._emit(f"[error] {msg}")
 
     # -- 内部 --
-    def _today_path(self) -> Path:
-        return self.dir / f"BISim_{datetime.now().strftime('%y%m%d')}.log"
+    def _session_path(self) -> Path:
+        suffix = "" if self._part == 1 else f"_{self._part:02d}"
+        return self.dir / f"BISim_{self._session}{suffix}.log"
+
+    def _advance_part_if_full(self, line: str) -> None:
+        """同一セッション中でも1ファイルが上限(MB)を超えないよう、パートを進める。"""
+        limit = self.max_mb * 1024 * 1024
+        p = self._session_path()
+        try:
+            size = p.stat().st_size if p.exists() else 0
+        except OSError:
+            size = 0
+        if size and size + len(line.encode("utf-8")) + 1 > limit:
+            self._part += 1
 
     def _emit(self, body: str) -> None:
         line = f"{datetime.now().strftime('%y-%m-%d %H:%M:%S')}  {body}"
+        self._advance_part_if_full(line)
         try:
-            with open(self._today_path(), "a", encoding="utf-8") as f:
+            with open(self._session_path(), "a", encoding="utf-8") as f:
                 f.write(line + "\n")
         except OSError:
             pass

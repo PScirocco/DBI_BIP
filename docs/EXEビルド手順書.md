@@ -14,7 +14,7 @@
 ```powershell
 # リポジトリ直下・社内ネットワーク接続
 .\.venv\Scripts\pip install pyinstaller
-.\.venv\Scripts\python -m bisim.selftest        # 49/49 pass を確認
+.\.venv\Scripts\python -m bisim.selftest        # 全 pass を確認（本書執筆時点 64/64）
 .\installer\build_exe.ps1
 # → dist\BI-sim\BI-sim.exe  ＋  dist\BI-sim_YYMMDD.zip
 ```
@@ -61,7 +61,7 @@ py -3.9 -m venv .venv
 .\.venv\Scripts\python -m bisim.selftest
 ```
 
-- **`49/49 passed`（または以降で増えた総数が全 pass）** を確認してから進む。
+- **`64/64 passed`（本書執筆時点。以降で増えた総数が全 pass であればOK）** を確認してから進む。
 - 1件でも FAIL があるならビルドしない（原因を潰す）。
 
 あわせて GUI が起動することも確認（任意）:
@@ -125,7 +125,7 @@ dist\BI-sim\
 │       └─ dbi_common\ mov_001_480x270.mp4 / mov_ht_001_480x270.mp4 / eval_img*.png
 └─ （初回起動後に以下が自動生成）
     ├─ bisim_output\             ← シミュレーション出力の既定先
-    ├─ _log_BISim\BISim_YYMMDD.log
+    ├─ _log_BISim\BISim_YYMMDD-HHMMSS.log   （起動ごとに新規。上限超過時は _02.log …）
     └─ bisim_app.json            ← 言語・ログ容量設定
 ```
 
@@ -159,7 +159,7 @@ dist\BI-sim\
      `stat_*.csv` `deg_*.csv` `movie.mp4`、シーケンス JSON に `stops` が追記される
 5. 「▶↻ 停止位置から再開」→ 最後まで走り ⑤結果タブにマップ表示
    （完了すると `_stops\` と `stops` エントリは自動で消える）
-6. `dist\BI-sim\_log_BISim\BISim_YYMMDD.log` にログが出ている
+6. `dist\BI-sim\_log_BISim\BISim_YYMMDD-HHMMSS.log`（起動時刻のファイル）にログが出ている
 
 ---
 

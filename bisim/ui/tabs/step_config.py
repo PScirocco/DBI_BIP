@@ -58,6 +58,20 @@ class StepConfigTab(QWidget):
         self.l_ht = QLabel(t("cfg.heatmap"))
         f1.addRow(self.l_ht, with_btn(self.ed_ht, self.b_ht))
 
+        # ヒートマップなし＝パネル全面を固定温度で計算（IP設計者レビュー2 (1)）
+        ht_fixed_host = QWidget()
+        ht_fixed_lay = QHBoxLayout(ht_fixed_host)
+        ht_fixed_lay.setContentsMargins(0, 0, 0, 0)
+        self.cb_ht_fixed = QCheckBox(t("cfg.heatmap.fixed_cb"))
+        self.cb_ht_fixed.toggled.connect(self._on_heatmap_mode_changed)
+        self.sp_fixed_temp = self._dspin(-50.0, 200.0, 1.0)
+        self.l_ht_fixed_unit = QLabel(t("cfg.heatmap.fixed_unit"))
+        ht_fixed_lay.addWidget(self.cb_ht_fixed)
+        ht_fixed_lay.addWidget(self.sp_fixed_temp)
+        ht_fixed_lay.addWidget(self.l_ht_fixed_unit)
+        ht_fixed_lay.addStretch(1)
+        f1.addRow(ht_fixed_host)
+
         self.lbl_kind = QLabel(t("kind.unknown"))
         self.l_kind = QLabel(t("cfg.kind"))
         f1.addRow(self.l_kind, self.lbl_kind)
@@ -189,11 +203,12 @@ class StepConfigTab(QWidget):
         return self.main.sequence.folders
 
     def set_enabled(self, on: bool):
-        for w in (self.ed_name, self.ed_img, self.ed_ht, self.cmb_init, self.tbl_model,
+        for w in (self.ed_name, self.ed_img, self.cmb_init, self.tbl_model,
                   self.sp_accel, self.sp_tl, self.sp_th, self.sp_aging, self.btn_apply,
-                  self.b_img, self.b_ht, self.b_load, self.b_save,
+                  self.b_img, self.cb_ht_fixed, self.b_load, self.b_save,
                   self.b_load_sim, self.b_save_sim):
             w.setEnabled(on)
+        self._sync_heatmap_widgets(on)
 
     # -- load / collect --
     def load(self, recipe: Recipe | None, row: int | None):
@@ -209,6 +224,11 @@ class StepConfigTab(QWidget):
         self.ed_name.setText(recipe.recipe_name)
         self.ed_img.setText(recipe.input_image)
         self.ed_ht.setText(recipe.heatmap)
+        self.cb_ht_fixed.blockSignals(True)
+        self.cb_ht_fixed.setChecked(recipe.heatmap_mode == "fixed")
+        self.cb_ht_fixed.blockSignals(False)
+        self.sp_fixed_temp.setValue(recipe.fixed_temp_c)
+        self._sync_heatmap_widgets(True)
         self.lbl_kind.setText(kind_label(recipe))
         self.cmb_init.blockSignals(True)
         self.cmb_init.setCurrentIndex(INIT_KEYS.index(recipe.init_stress))
@@ -246,6 +266,8 @@ class StepConfigTab(QWidget):
         if name:
             r.recipe_name = name
         r.init_stress = INIT_KEYS[self.cmb_init.currentIndex()]
+        r.heatmap_mode = "fixed" if self.cb_ht_fixed.isChecked() else "file"
+        r.fixed_temp_c = self.sp_fixed_temp.value()
         r.init_stress_files = {
             "r": self.ed_sr.text().strip(), "g": self.ed_sg.text().strip(),
             "b": self.ed_sb.text().strip()}
@@ -301,6 +323,17 @@ class StepConfigTab(QWidget):
         self.file_host.setVisible(key == "file")
         self._refresh_prev_preview(key)
 
+    # -- ヒートマップなし（固定温度）--
+    def _sync_heatmap_widgets(self, tab_enabled: bool):
+        fixed = self.cb_ht_fixed.isChecked()
+        self.ed_ht.setEnabled(tab_enabled and not fixed)
+        self.b_ht.setEnabled(tab_enabled and not fixed)
+        self.sp_fixed_temp.setEnabled(tab_enabled and fixed)
+
+    def _on_heatmap_mode_changed(self, _checked: bool):
+        self._sync_heatmap_widgets(self.recipe is not None)
+        self._refresh_previews()
+
     # -- previews --
     def _refresh_previews(self):
         r = self.recipe
@@ -308,8 +341,11 @@ class StepConfigTab(QWidget):
         fh = self._folders()["heatmap"]
         self.pv_img.set_bgr(
             read_first_frame(str(Path(fi) / r.input_image)) if r.input_image else None)
-        self.pv_ht.set_bgr(
-            read_first_frame(str(Path(fh) / r.heatmap)) if r.heatmap else None)
+        if self.cb_ht_fixed.isChecked():
+            self.pv_ht.set_message(t("cfg.pv.heatmap_fixed", v=self.sp_fixed_temp.value()))
+        else:
+            self.pv_ht.set_bgr(
+                read_first_frame(str(Path(fh) / r.heatmap)) if r.heatmap else None)
         self._refresh_prev_preview(r.init_stress)
 
     def _refresh_prev_preview(self, key: str):
@@ -402,6 +438,8 @@ class StepConfigTab(QWidget):
         self.l_name.setText(t("cfg.name"))
         self.l_img.setText(t("cfg.input"))
         self.l_ht.setText(t("cfg.heatmap"))
+        self.cb_ht_fixed.setText(t("cfg.heatmap.fixed_cb"))
+        self.l_ht_fixed_unit.setText(t("cfg.heatmap.fixed_unit"))
         self.l_kind.setText(t("cfg.kind"))
         self.b_img.setText(t("btn.browse"))
         self.b_ht.setText(t("btn.browse"))

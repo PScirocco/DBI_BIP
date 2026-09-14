@@ -30,6 +30,7 @@ DEFAULT_SIM: dict[str, float] = {
 }
 
 INIT_STRESS = ("none", "prev", "file")
+HEATMAP_MODES = ("file", "fixed")     # fixed = ヒートマップなし・パネル全面を固定温度
 
 CHECKPOINT_ROOT = "_stops"     # 出力フォルダ配下の停止チェックポイント置き場
 
@@ -108,6 +109,8 @@ class Recipe:
     recipe_name: str = "recipe"
     input_image: str = ""                 # ファイル名のみ
     heatmap: str = ""
+    heatmap_mode: str = "file"            # file | fixed（ヒートマップなし・固定温度）
+    fixed_temp_c: float = 25.0            # heatmap_mode="fixed" のときのパネル全面温度[℃]
     model_param: dict = field(default_factory=_fresh_model)    # インライン値
     model_param_csv: str = ""             # 参照CSVファイル名（CLI互換・任意）
     sim_param: dict = field(default_factory=_fresh_sim)
@@ -126,6 +129,8 @@ class Recipe:
             problems.append("recipe_name が空")
         if self.init_stress not in INIT_STRESS:
             problems.append(f"init_stress が不正: {self.init_stress!r}")
+        if self.heatmap_mode not in HEATMAP_MODES:
+            problems.append(f"heatmap_mode が不正: {self.heatmap_mode!r}")
         for k in MODEL_KEYS:
             v = self.model_param.get(k)
             if not (isinstance(v, list) and len(v) == 3):
@@ -144,6 +149,8 @@ class Recipe:
             "recipe_name": self.recipe_name,
             "input_image": self.input_image,
             "heatmap": self.heatmap,
+            "heatmap_mode": self.heatmap_mode,
+            "fixed_temp_c": self.fixed_temp_c,
             "model_param": {k: list(v) for k, v in self.model_param.items()},
             "model_param_csv": self.model_param_csv,
             "sim_param": dict(self.sim_param),
@@ -165,10 +172,19 @@ class Recipe:
         init = d.get("init_stress", "none")
         if init not in INIT_STRESS:
             init = "none"
+        ht_mode = d.get("heatmap_mode", "file")
+        if ht_mode not in HEATMAP_MODES:
+            ht_mode = "file"
+        try:
+            fixed_temp_c = float(d.get("fixed_temp_c", 25.0))
+        except (TypeError, ValueError):
+            fixed_temp_c = 25.0
         return cls(
             recipe_name=str(d.get("recipe_name", "recipe")),
             input_image=str(d.get("input_image", "")),
             heatmap=str(d.get("heatmap", "")),
+            heatmap_mode=ht_mode,
+            fixed_temp_c=fixed_temp_c,
             model_param=model,
             model_param_csv=str(d.get("model_param_csv", "")),
             sim_param=sim,
