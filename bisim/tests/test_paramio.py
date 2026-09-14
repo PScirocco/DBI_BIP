@@ -40,7 +40,7 @@ def test_sim_csv_roundtrip():
         p = Path(d) / "aging01_sim-param.csv"
         paramio.write_sim_csv(p, dict(DEFAULT_SIM))
         lines = p.read_text(encoding="utf-8").splitlines()
-        assert lines[0] == "AGING_TIME,10"
+        assert lines[0] == "AGING_TIME,0"
         assert paramio.read_sim_csv(p) == dict(DEFAULT_SIM)
 
 

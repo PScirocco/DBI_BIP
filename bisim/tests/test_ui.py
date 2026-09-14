@@ -129,6 +129,19 @@ def test_add_edit_recipe_via_tabs():
     _close(win)
 
 
+def test_aging_time_field_via_config_tab():
+    if not _pyside_ok():
+        return
+    win = _new_window()
+    win.steps_tab._add()
+    cfg = win.config_tab
+    assert cfg.sp_aging.value() == 0.0 and cfg.sp_aging.decimals() == 0   # 既定=無制限・整数秒
+    cfg.sp_aging.setValue(2500.0)
+    assert cfg._collect_into_recipe()
+    assert win.sequence.recipes[0].sim_param["AGING_TIME"] == 2500.0
+    _close(win)
+
+
 def test_fixed_heatmap_checkbox_via_config_tab():
     if not _pyside_ok():
         return

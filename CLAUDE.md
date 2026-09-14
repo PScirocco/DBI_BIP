@@ -43,9 +43,10 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 - **2026-09-10 EXE配布 → IP設計者2回目レビュー**（`docs/progress/260910_DBI&BIP_prog_mtg.txt`）。指摘3件＋保留1件：
   (1) ログのセッション分割 → **実装済み**（`logio.Logger`、1ファイルの大きさ感は従来の日次ログ相当を維持）、
   (2) ヒートマップなし＝パネル全面固定温度 → **実装済み**（`Recipe.heatmap_mode`/`fixed_temp_c`、③タブにチェックボックス＋数値入力）、
-  (3) AGING_TIME を目標時間として機能させる（秒単位。超過で打切り／不足で動画を周回連結） → **未着手**（設計は `docs/progress/260910_評価反映2_実装方針.md` に記載、`run_recipe` の中核ロジック変更が必要で規模大）、
-  【保留】パネル表示周波数対応 → 対応不要（着手しない）。
-- 残：上記(3) → フェーズF（T10 IP設計者コア差し替え・結合試験・原理確認。10月初〜、コア受領後）。
+  (3) AGING_TIME を目標時間として機能させる（秒単位。超過で打切り／不足で動画を周回連結） → **実装済み 2026-09-14**
+  （`Recipe.sim_param["AGING_TIME"]`。既定 `0`＝無制限＝従来どおり、正値で目標時間駆動に切替。詳細は `docs/progress/260910_評価反映2_実装方針.md`）、
+  【保留】パネル表示周波数対応 → 対応不要（着手しない）。selftest 69/69。
+- 残：フェーズF（T10 IP設計者コア差し替え・結合試験・原理確認。10月初〜、コア受領後）。
 - IP設計者のアルゴリズムコア着手は**10月初め**。統合 → 原理確認 → 社内試用 を経て10月末完成予定。
 - 当面先/スコープ外：出力マップの画像フォーマット化＋専用ビューア、CPU並列（画像分割）、
   DBI/BIP補正実装、実機データ比較・モデル修正。
@@ -60,7 +61,7 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name`（`_`→`-`）、`stop_dir`（`_stops/` チェックポイントのフォルダ名） | A/D |
 | `paramio.py` | model/sim パラメータ CSV I/O（CLI版 `degparam_mm.csv` / `simconf.csv` と互換） | B |
 | `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） | B |
-| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に）/ `run_sequence` / 出力の確定・破棄 / `format_aging` | B/D |
+| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に。`AGING_TIME`>0 で目標時間駆動＝超過打切り／不足なら動画を周回連結、`resume_from` が周回をまたぐ場合は `% frames_total` でシーク）/ `run_sequence` / 出力の確定・破棄 / `format_aging` | B/D |
 | `logio.py` | `Logger`（`_log_BISim/` セッションローテーション＝起動ごとに新ファイル。容量超過時は同一セッション内でも新パートへ、総容量上限、画面表示 listener） | B |
 | `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ） | C/D |
 | `installer/` | `bisim.spec`（PyInstaller 6.x・onedir）/ `bisim_launcher.py` / `build_exe.ps1` / `README.md`。手順は `docs/EXEビルド手順書.md` | E |
@@ -116,6 +117,8 @@ deg  = exp( -( stat ** (B0 + A·temp) ) )
 `ACCEL_RATIO`=シミュレーション加速, β=`B0+A·temp`。
 本番GUIの UI 表記は `deg`→「1/劣化率 / inverse degradation」、`stat`→「累積時間 / accumulated time」に変更
 （ファイル名トークンは `deg` / `stat` 維持）。加速込みAging時間 = (フレーム数/fps)×`ACCEL_RATIO`。
+`AGING_TIME`[秒]はこの加速込みAging時間の**目標値**（`0`＝無制限）。超過なら打ち切り、不足なら
+動画を周回連結して埋める（`bisim/engine.py::run_recipe`。`source/` 側は無改変・未使用のまま）。
 
 ## 環境メモ
 

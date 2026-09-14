@@ -227,6 +227,121 @@ def test_stop_then_resume_continuous_video():
         assert not (Path(d) / st.dir).exists()
 
 
+# --------------------------------------------------------------------------- #
+#  AGING_TIME（目標Aging時間。IP設計者レビュー2 (3)）
+# --------------------------------------------------------------------------- #
+def _movie_meta(path) -> tuple:
+    cap = cv2.VideoCapture(str(path))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return fps, total
+
+
+def test_aging_time_zero_is_unlimited():
+    """既定 AGING_TIME=0 は従来どおり無制限（1周回のみ、打ち切りなし）。"""
+    r = Recipe()
+    assert r.sim_param["AGING_TIME"] == 0.0
+
+
+def test_run_recipe_aging_time_truncates():
+    with tempfile.TemporaryDirectory() as d:
+        r = Recipe(recipe_name="aging01", input_image=_MOVIE, heatmap=_MOVIE_HT)
+        fps, native_total = _movie_meta(_COMMON / _MOVIE)
+        dt_accel = (1.0 / fps) * r.sim_param["ACCEL_RATIO"]
+        r.sim_param["AGING_TIME"] = dt_accel * 2.5     # 2.5フレーム分 → 3フレームで打ち切り
+
+        res = engine.run_recipe(recipe=r, folders=_folders(d), sequence_name="T",
+                                nn="01", model=_model())
+        assert not res.stopped                          # 目標到達は「停止」ではなく正常完了
+        assert res.frames_done == 3 and res.frames_done < native_total
+        assert res.aging_seconds >= r.sim_param["AGING_TIME"]
+        assert res.frames_total == res.frames_done       # 目標フレーム数=処理数（進捗バー用）
+
+
+def test_run_recipe_aging_time_loops_past_movie_length():
+    with tempfile.TemporaryDirectory() as d:
+        r = Recipe(recipe_name="aging01", input_image=_MOVIE, heatmap=_MOVIE_HT)
+        fps, native_total = _movie_meta(_COMMON / _MOVIE)
+        dt_accel = (1.0 / fps) * r.sim_param["ACCEL_RATIO"]
+        r.sim_param["AGING_TIME"] = dt_accel * (native_total + 5)   # 1周回+5フレーム分
+
+        res = engine.run_recipe(recipe=r, folders=_folders(d), sequence_name="T",
+                                nn="01", model=_model())
+        assert not res.stopped
+        assert res.frames_done == native_total + 5       # 1周回を超えて周回連結された
+        assert res.frames_total == res.frames_done
+
+        out = engine.write_recipe_outputs(result=res, folders=_folders(d),
+                                          sequence_name="T", model=_model(),
+                                          model_param=r.model_param)
+        assert _movie_count(out["movie"]) == res.frames_done   # 出力動画も周回ぶん連結済み
+
+
+def test_run_recipe_aging_time_stop_and_resume_across_wrap():
+    with tempfile.TemporaryDirectory() as d:
+        r = Recipe(recipe_name="aging01", input_image=_MOVIE, heatmap=_MOVIE_HT)
+        f = _folders(d)
+        fps, native_total = _movie_meta(_COMMON / _MOVIE)
+        dt_accel = (1.0 / fps) * r.sim_param["ACCEL_RATIO"]
+        r.sim_param["AGING_TIME"] = dt_accel * (native_total + 20)  # 1周回+20フレーム分
+
+        ctl = engine.RunControl()
+        stop_at = native_total + 3      # 周回をまたいだ直後で停止
+
+        def cb(fd, ft, prev):
+            if fd >= stop_at:
+                ctl.request_stop()
+
+        res1 = engine.run_recipe(recipe=r, folders=f, sequence_name="S", nn="01",
+                                 model=_model(), control=ctl, progress_cb=cb)
+        assert res1.stopped and res1.frames_done == stop_at
+
+        st, out1 = engine.write_stop_checkpoint(
+            result=res1, folders=f, sequence_name="S", model=_model(),
+            model_param=r.model_param, timestamp="260910-1200")
+        assert st.frames_done == stop_at
+        n1 = _movie_count(out1["movie"])
+        assert n1 == stop_at
+
+        plan, err = engine.build_resume_plan(f, st)
+        assert err is None and plan.frames_done == stop_at
+
+        res2 = engine.run_recipe(
+            recipe=r, folders=f, sequence_name="S", nn="01", model=_model(),
+            initial_state=plan.state, resume_from=plan.frames_done,
+            resume_video=plan.video, resume_aging_seconds=plan.aging_seconds)
+        assert not res2.stopped
+        assert res2.resumed_from == stop_at and res2.frames_done > 0
+        assert res2.aging_seconds >= r.sim_param["AGING_TIME"]
+        assert res2.frames_total == res2.frames_absolute   # 目標到達=絶対フレーム数と一致
+
+        out2 = engine.write_recipe_outputs(
+            result=res2, folders=f, sequence_name="S", model=_model(),
+            model_param=r.model_param)
+        n2 = _movie_count(out2["movie"])
+        assert n2 == res2.frames_absolute                  # 周回をまたいでも連続動画として出力
+
+
+def test_run_sequence_continues_after_aging_time_truncation():
+    """AGING_TIME による打ち切りは通常完了扱い＝シーケンスの次ステップへ継続する。"""
+    with tempfile.TemporaryDirectory() as d:
+        seq = Sequence(sequence_name="SEQ", folders=_folders(d))
+        aging = Recipe(recipe_name="aging01", input_image=_MOVIE, heatmap=_MOVIE_HT)
+        fps, native_total = _movie_meta(_COMMON / _MOVIE)
+        dt_accel = (1.0 / fps) * aging.sim_param["ACCEL_RATIO"]
+        aging.sim_param["AGING_TIME"] = dt_accel * 2.5
+        pq = Recipe(recipe_name="pq01", input_image=_STILL, heatmap=_STILL_HT,
+                   init_stress="prev")
+        seq.recipes = [aging, pq]
+
+        results = engine.run_sequence(sequence=seq, model=_model())
+        assert len(results) == 2
+        assert not results[0].stopped and results[0].frames_done < native_total
+        assert results[1].frames_done == 1
+        assert float(np.nanmax(results[1].state.r)) > 0.0   # 前ステップの劣化を継承
+
+
 def test_run_sequence_resume_plan():
     with tempfile.TemporaryDirectory() as d:
         seq = Sequence(sequence_name="SEQ", folders=_folders(d))

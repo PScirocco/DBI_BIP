@@ -14,7 +14,7 @@
 ```powershell
 # リポジトリ直下・社内ネットワーク接続
 .\.venv\Scripts\pip install pyinstaller
-.\.venv\Scripts\python -m bisim.selftest        # 全 pass を確認（本書執筆時点 64/64）
+.\.venv\Scripts\python -m bisim.selftest        # 全 pass を確認（本書執筆時点 69/69）
 .\installer\build_exe.ps1
 # → dist\BI-sim\BI-sim.exe  ＋  dist\BI-sim_YYMMDD.zip
 ```
@@ -61,7 +61,7 @@ py -3.9 -m venv .venv
 .\.venv\Scripts\python -m bisim.selftest
 ```
 
-- **`64/64 passed`（本書執筆時点。以降で増えた総数が全 pass であればOK）** を確認してから進む。
+- **`69/69 passed`（本書執筆時点。以降で増えた総数が全 pass であればOK）** を確認してから進む。
 - 1件でも FAIL があるならビルドしない（原因を潰す）。
 
 あわせて GUI が起動することも確認（任意）:

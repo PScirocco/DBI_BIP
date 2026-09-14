@@ -13,6 +13,7 @@ ASCII一時ファイル→``shutil.move``）。
 """
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import sys
@@ -343,7 +344,22 @@ def run_recipe(
         os.close(_fd)                                          # mkstemp のハンドルを閉じる（Windowsでロック解除）
         tmp_video = Path(_tmp)
         writer = cv2.VideoWriter(str(tmp_video), fourcc, fps, (width, height))
-        end = frames_total if max_frames is None else min(frames_total, start + max_frames)
+
+        # ---- AGING_TIME（目標 Aging 時間・秒。仕様: IP設計者レビュー2 (3)）----
+        # 0（既定）＝無制限＝従来どおり動画を1周回のみ処理。正の値なら、
+        # 1周回の実時間（frames_total×dt×ACCEL_RATIO）が目標を超えれば途中で打ち切り、
+        # 満たなければ動画の先頭へ戻って周回しながら目標に達するまで継続する。
+        dt_accel = dt * accel
+        target_seconds = float(sim.get("AGING_TIME", 0.0))
+        use_target = dt_accel > 0 and target_seconds > 0
+        if use_target:
+            remaining = target_seconds - aging_seconds
+            add_frames = max(1, math.ceil(remaining / dt_accel)) if remaining > 0 else 0
+            frames_target = start + add_frames
+        else:
+            frames_target = frames_total
+        end = frames_target if max_frames is None else min(frames_target, start + max_frames)
+
         if start > 0:
             # 連続動画にするため、継続元の部分動画から先頭 start フレームを取り込む
             copied = 0
@@ -360,33 +376,47 @@ def run_recipe(
                     rcap.release()
             if log:
                 log.action(f"再開: 先頭 {copied}/{start} フレームを部分動画から連結")
-            cap.set(cv2.CAP_PROP_POS_FRAMES, start)
+            # start が動画の実フレーム数を超えることがある（AGING_TIME で周回中の再開）ため
+            # 実動画上の位置は周回を畳んだ余り（modulo）で求める
+            native_pos = (start % frames_total) if frames_total > 0 else 0
+            cap.set(cv2.CAP_PROP_POS_FRAMES, native_pos)
             if cap_ht is not None:
-                cap_ht.set(cv2.CAP_PROP_POS_FRAMES, start)
+                cap_ht.set(cv2.CAP_PROP_POS_FRAMES, native_pos)
         try:
-            for _i in range(start, end):
+            frame_idx = start
+            while frame_idx < end:
                 while control.paused and not control.stopped:
                     time.sleep(0.05)
                 if control.stopped:
                     stopped = True
                     break
                 ok1, img = cap.read()
+                if not ok1 and use_target:
+                    # 動画終端 → AGING_TIME 未達なら先頭へ戻って周回を続ける
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ok1, img = cap.read()
+                if not ok1:
+                    break
                 if fixed_temp:
                     ht = ht_dummy
                 else:
                     ok2, ht = cap_ht.read()
+                    if not ok2 and use_target:
+                        cap_ht.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ok2, ht = cap_ht.read()
                     if not ok2:
                         break
-                if not ok1:
-                    break
                 model.update(dt, img, ht, state, recipe.model_param, sim)
                 last_temp = _temp(ht)
                 writer.write(img)
-                aging_seconds += dt * accel
+                aging_seconds += dt_accel
                 frames_done += 1
+                frame_idx += 1
                 img_last = img
                 if progress_cb:
                     progress_cb(frames_done, end - start, img)
+                if use_target and aging_seconds >= target_seconds:
+                    break        # 目標時間に到達（周回途中でも打ち切る）
         finally:
             cap.release()
             if cap_ht is not None:
@@ -404,9 +434,12 @@ def run_recipe(
             if progress_cb:
                 progress_cb(1, 1, img0)
 
+    # frames_total の意味: 静止画は常に1。動画は AGING_TIME 由来の目標フレーム数
+    # （進捗バー・停止再開ダイアログ用の目安値。無制限なら入力動画の実フレーム数と同じ）
+    reported_frames_total = frames_target if is_movie else frames_total
     res = RunResult(
         recipe_name=recipe.recipe_name, nn=nn, is_movie=is_movie,
-        size=(width, height), frames_total=frames_total, frames_done=frames_done,
+        size=(width, height), frames_total=reported_frames_total, frames_done=frames_done,
         aging_seconds=aging_seconds, stopped=stopped, state=state, temp_kelvin=last_temp,
         resumed_from=start,
     )

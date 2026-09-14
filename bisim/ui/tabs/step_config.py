@@ -128,7 +128,7 @@ class StepConfigTab(QWidget):
         self.sp_accel = self._dspin(1.0, 1e12, 1000.0)
         self.sp_tl = self._dspin(-50.0, 200.0, 1.0)
         self.sp_th = self._dspin(-50.0, 300.0, 1.0)
-        self.sp_aging = self._dspin(0.0, 1e9, 1.0)
+        self.sp_aging = self._dspin(0.0, 1e9, 1.0, decimals=0)   # 秒。整数精度でよい（担当者確認済み）
         self.l_accel = QLabel(t("cfg.accel"))
         self.l_tl = QLabel(t("cfg.tmp_l"))
         self.l_th = QLabel(t("cfg.tmp_h"))
@@ -192,10 +192,10 @@ class StepConfigTab(QWidget):
         self.set_enabled(False)
 
     @staticmethod
-    def _dspin(lo, hi, step):
+    def _dspin(lo, hi, step, decimals=3):
         s = QDoubleSpinBox()
         s.setRange(lo, hi)
-        s.setDecimals(3)
+        s.setDecimals(decimals)
         s.setSingleStep(step)
         return s
 

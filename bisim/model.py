@@ -23,7 +23,9 @@ DEFAULT_MODEL: dict[str, list[float]] = {
     "A":  [0.0, 0.0, 0.0],
 }
 DEFAULT_SIM: dict[str, float] = {
-    "AGING_TIME": 10.0,      # 現状 未使用（仕様 5-③, 9）
+    # 目標 Aging 時間 [秒]（仕様 5-③）。超過なら打切り、不足なら動画を周回連結して埋める。
+    # 既定 0 ＝無制限（＝従来どおり動画を1周回のみ処理。明示的に設定するまでは無効）
+    "AGING_TIME": 0.0,
     "ACCEL_RATIO": 30000.0,
     "TMP_L": 25.0,
     "TMP_H": 60.0,
