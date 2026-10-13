@@ -62,6 +62,7 @@ def test_run_recipe_still():
         assert res.frames_done == 1 and not res.is_movie and not res.stopped
         assert res.size == (480, 270)
         assert res.aging_seconds == 0.0            # 静止画は寄与ゼロ
+        assert res.dt_accel == 0.0
         deg = _model().deg_maps(res.state, res.temp_kelvin, r.model_param)
         assert np.allclose(deg["r"], 1.0)         # 初期ストレス0 → 劣化なし
 
@@ -105,7 +106,9 @@ def test_run_recipe_movie_limited():
                                 nn="01", model=_model(), max_frames=4)
         assert res.is_movie and res.frames_done == 4 and not res.stopped
         assert res.aging_seconds > 0 and np.isfinite(res.aging_seconds)
-        out = engine.write_recipe_outputs(result=res, folders=_folders(d),
+        # 1フレームあたりの加速込み時間（⑤結果タブのフレーム→Aging時間換算に使う）
+        assert res.dt_accel > 0 and np.isclose(res.dt_accel * 4, res.aging_seconds)
+        out =engine.write_recipe_outputs(result=res, folders=_folders(d),
                                           sequence_name="T", model=_model(),
                                           model_param=r.model_param)
         assert Path(out["movie"]).name == "T_01_aging01_movie.mp4"

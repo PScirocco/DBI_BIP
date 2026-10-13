@@ -1,8 +1,8 @@
 """⑤ 結果（仕様 5-⑤）
 
 - 劣化後プレビュー（動画はフレームスライダ）
-- 1/劣化率マップ（``_deg_{r,g,b}.csv``）：R / G / B / RGB合成。明るい＝劣化していない
-- 累積時間マップ（``_stat_{r,g,b}.csv``）：同上。面内最大で正規化
+- 輝度残存率マップ（``_deg_{r,g,b}.csv``）：R / G / B / RGB合成。明るい＝劣化していない
+- 累積時間マップ（``_stat_{r,g,b}.csv``）：同上。面内最大で正規化し明暗反転（暗い＝累積大）
 - 時系列：白紙の軸のみ（中身なし。アルゴリズム担当者間で継続検討）
 - A/B比較：将来枠（無効表示）
 
@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QPushButton, QSlider, QTabWidget, QVBoxLayout, QWidget,
 )
 
-from bisim import imio
+from bisim import engine, imio
 from bisim.ui.i18n import t
 from bisim.ui.widgets import ImagePanel, MplCanvas
 
@@ -26,9 +26,10 @@ CH_KEYS = ["r", "g", "b", "rgb"]
 
 
 class _MapView(QWidget):
-    """1/劣化率マップ / 累積時間マップ の共通ビュー。
+    """輝度残存率マップ / 累積時間マップ の共通ビュー。
 
     各チャネルはそのチャネル色の輝度で表示（黒=劣化大 / 明=劣化小）。RGB合成も可。
+    累積時間マップは明暗を反転し、輝度残存率マップと同じ向き（暗=累積大）に揃える。
     """
 
     def __init__(self, main, kind: str):
@@ -100,7 +101,7 @@ class _MapView(QWidget):
             rng = t("map.rangev", v=f"{vmax:.3g}")
 
         def norm(a):
-            return np.clip(a / vmax, 0.0, 1.0)
+            return self._norm(a, vmax)
 
         sel = self.cmb_ch.currentIndex()
         if sel < 3:
@@ -116,6 +117,11 @@ class _MapView(QWidget):
             self.canvas.show_rgb(rgb, t("map.title.rgb", idx=idx, label=label, rng=rng))
             self.lbl_stats.setText(
                 " / ".join(f"{c.upper()} mean {np.nanmean(raw[c]):.4g}" for c in "rgb"))
+
+    def _norm(self, a: np.ndarray, vmax: float) -> np.ndarray:
+        """表示用の 0–1 正規化。stat は明暗反転（暗=累積大）、deg はそのまま（明=劣化少）。"""
+        v = np.clip(a / vmax, 0.0, 1.0)
+        return (1.0 - v) if self.kind == "stat" else v
 
     def retranslate(self):
         self.lbl_view.setText(t("map.view"))
@@ -256,7 +262,15 @@ class ResultsTab(QWidget):
         ok, frame = self._cap.read()
         if ok:
             self.pv.set_bgr(frame)
-            self.lbl_frame.setText(t("res.frame", v=v))
+            self.lbl_frame.setText(self._frame_text(v))
+
+    def _frame_text(self, v: int) -> str:
+        """フレーム番号＋そのフレーム時点の Aging 時間（前ステップまでの累積込み）。"""
+        entry = self.main.current_result()
+        if entry is not None and entry.seconds_per_frame > 0:
+            t_sec = entry.base_aging_seconds + v * entry.seconds_per_frame
+            return t("res.frame_aging", v=v, aging=engine.format_aging(t_sec))
+        return t("res.frame", v=v)
 
     def retranslate(self):
         self.lbl_idx.setText(t("res.idx"))
@@ -264,6 +278,8 @@ class ResultsTab(QWidget):
                                  "res.sub.ts", "res.sub.ab"]):
             self.sub.setTabText(i, t(key))
         self.pv.set_title(t("res.preview.title"))
+        if self._cap is not None:
+            self.lbl_frame.setText(self._frame_text(self.sld.value()))
         self.lbl_ab.setText(t("res.ab.note"))
         self.lbl_ts.setText(t("res.ts.note"))
         self.canvas_ts.blank_axes(t("res.ts.x"), t("res.ts.y"))

@@ -223,6 +223,7 @@ class RunResult:
     outputs: dict = field(default_factory=dict)
     cumulative_aging_seconds: float = 0.0
     resumed_from: int = 0          # 停止位置から再開したときの開始フレーム（絶対）
+    dt_accel: float = 0.0          # 1フレームあたりの加速込み Aging 時間 [s]（静止画は 0）
     _tmp_video: Optional[Path] = None
     _img_bgr: Optional[np.ndarray] = None
 
@@ -334,6 +335,7 @@ def run_recipe(
     img_last = None
     tmp_video: Optional[Path] = None
     start = max(resume_from, 0) if is_movie else 0
+    dt_accel = 0.0
 
     def _temp(ht):
         return (ht[:, :, 0] / 255.0) * (tmp_h_k - tmp_l_k) + tmp_l_k
@@ -441,7 +443,7 @@ def run_recipe(
         recipe_name=recipe.recipe_name, nn=nn, is_movie=is_movie,
         size=(width, height), frames_total=reported_frames_total, frames_done=frames_done,
         aging_seconds=aging_seconds, stopped=stopped, state=state, temp_kelvin=last_temp,
-        resumed_from=start,
+        resumed_from=start, dt_accel=dt_accel,
     )
     res._tmp_video = tmp_video
     res._img_bgr = None if is_movie else img_last

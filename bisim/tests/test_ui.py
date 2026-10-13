@@ -283,6 +283,25 @@ def test_run_small_sequence_end_to_end():
         win.results_tab.add_result(1)
         win.results_tab.view_deg.reload()
         win.results_tab.view_stat.reload()
+        # 累積時間マップは明暗反転（IP設計者レビュー3 変更6）: 累積が大きい画素ほど暗い。
+        # 輝度残存率マップは従来どおり（明=劣化少）
+        import numpy as np
+        vs, vd = win.results_tab.view_stat, win.results_tab.view_deg
+        raw = vs._raw["r"]
+        vmax = float(np.nanmax(raw))
+        assert vmax > 0
+        shown = vs._norm(raw, vmax)
+        assert np.allclose(shown, 1.0 - raw / vmax)
+        assert shown[np.unravel_index(np.nanargmax(raw), raw.shape)] == 0.0
+        assert np.allclose(vd._norm(vd._raw["r"], 1.0), np.clip(vd._raw["r"], 0.0, 1.0))
+        # フレームスライダに Aging 時間を併記（IP設計者レビュー3 変更7）
+        from bisim import engine
+        from bisim.ui.i18n import t
+        rt = win.results_tab
+        assert entry.seconds_per_frame > 0 and entry.base_aging_seconds == 0.0
+        rt.sld.setValue(2)
+        want = engine.format_aging(2 * entry.seconds_per_frame)
+        assert rt.lbl_frame.text() == t("res.frame_aging", v=2, aging=want)
         _close(win)   # tempdir を消す前に VideoCapture を解放
 
 

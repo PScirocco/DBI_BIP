@@ -1,7 +1,8 @@
 """簡易 i18n（本番GUI）
 
 ``prototype/i18n.py`` を土台に、レビュー反映の文言変更を入れたもの。
-- 「劣化率」→「1/劣化率 / inverse degradation」（出力トークン ``deg`` は不変）
+- 「劣化率」→「輝度残存率(1-劣化率) / lum. residual (1-degradation)」（出力トークン ``deg`` は不変。
+  IP設計者レビュー3 で「1/劣化率 / inverse degradation」から再変更）
 - 「累積ストレス」→「累積時間 / accumulated time」（出力トークン ``stat`` は不変）
 
 Qt 非依存。``set_lang`` で切替、``t(key, **fmt)`` で引く。既定はリリース仕様どおり英語。
@@ -240,12 +241,14 @@ STR: dict[str, dict[str, str]] = {
     # ---- results tab ----
     "res.idx": {"ja": "表示するステップ", "en": "Step to show"},
     "res.sub.preview": {"ja": "劣化後プレビュー", "en": "Degraded preview"},
-    "res.sub.deg": {"ja": "1/劣化率マップ", "en": "Inverse-degradation map"},
+    "res.sub.deg": {"ja": "輝度残存率マップ", "en": "Lum. residual map"},
     "res.sub.stat": {"ja": "累積時間マップ", "en": "Accumulated-time map"},
     "res.sub.ts": {"ja": "時系列", "en": "Time series"},
     "res.sub.ab": {"ja": "A/B比較", "en": "A/B compare"},
     "res.preview.title": {"ja": "劣化後", "en": "Degraded"},
     "res.frame": {"ja": "フレーム {v}", "en": "Frame {v}"},
+    "res.frame_aging": {"ja": "フレーム {v}（Aging {aging}、累積込み）",
+                        "en": "Frame {v} (aging {aging}, cumulative)"},
     "res.ab.note": {"ja": "補正あり / なし の A/B 比較 —— 将来拡張（現在は無効）",
                     "en": "A/B compare with/without compensation — future (disabled)"},
     "res.ts.note": {"ja": "時系列の表示内容はアルゴリズム担当者間で継続検討中。"
@@ -265,10 +268,11 @@ STR: dict[str, dict[str, str]] = {
     "map.stats.none": {"ja": "統計: ―", "en": "Stats: —"},
     "map.none": {"ja": "（結果なし）", "en": "(no results)"},
     "map.csv_fail": {"ja": "（CSV読込失敗）", "en": "(CSV load failed)"},
-    "map.label.deg": {"ja": "1/劣化率", "en": "inv. degradation"},
+    "map.label.deg": {"ja": "輝度残存率(1-劣化率)", "en": "lum. residual (1-degradation)"},
     "map.label.stat": {"ja": "累積時間", "en": "accum. time"},
     "map.range01": {"ja": "明＝劣化少 (0–1)", "en": "bright = less degraded (0-1)"},
-    "map.rangev": {"ja": "面内最大で正規化 (max {v})", "en": "normalized to in-plane max ({v})"},
+    "map.rangev": {"ja": "正規化・反転表示: 暗＝累積大 (max {v})",
+                   "en": "normalized & inverted: dark = more accumulated (max {v})"},
     "map.title.ch": {"ja": "#{idx} {label} {ch}  ({rng})", "en": "#{idx} {label} {ch}  ({rng})"},
     "map.title.rgb": {"ja": "#{idx} {label} RGB合成  ({rng})",
                       "en": "#{idx} {label} RGB composite  ({rng})"},
