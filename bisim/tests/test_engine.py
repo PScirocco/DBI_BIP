@@ -249,6 +249,40 @@ def test_aging_time_zero_is_unlimited():
     assert r.sim_param["AGING_TIME"] == 0.0
 
 
+def test_aging_time_add_frames_matches_run_recipe():
+    """engine.aging_time_add_frames() は run_recipe 本体と同じ見積りを返す
+    （④実行タブの表示が内部計算と食い違わないことの保証）。"""
+    fps, _ = _movie_meta(_COMMON / _MOVIE)
+    dt_accel = (1.0 / fps) * 30000.0        # 既定 ACCEL_RATIO
+    assert engine.aging_time_add_frames(dt_accel, 0.0) == 0          # 残り0=目標達成済み
+    assert engine.aging_time_add_frames(dt_accel, 10.0) == 1         # 1フレーム未満でも最低1
+    assert engine.aging_time_add_frames(dt_accel, dt_accel * 2.5) == 3
+
+
+def test_aging_time_small_values_round_up_to_same_frame_count():
+    """大きい ACCEL_RATIO では1フレームが千秒規模になり、小さい AGING_TIME は
+    どれも『最低1フレーム』に丸められて区別できなくなる（評価メモ: 10秒と20秒を
+    試して結果が同じに見えた、の原因。バグではなく既定 ACCEL_RATIO=30000 での
+    1フレームあたりの粒度の問題）。"""
+    with tempfile.TemporaryDirectory() as d:
+        fps, native_total = _movie_meta(_COMMON / _MOVIE)
+        dt_accel = (1.0 / fps) * 30000.0
+        assert dt_accel > 20.0              # 1フレーム分の時間が 20 秒を上回ることを確認
+
+        results = []
+        for aging_time in (10.0, 20.0):
+            r = Recipe(recipe_name="aging01", input_image=_MOVIE, heatmap="",
+                      heatmap_mode="fixed", fixed_temp_c=100.0)
+            r.sim_param["AGING_TIME"] = aging_time
+            res = engine.run_recipe(recipe=r, folders=_folders(d), sequence_name="T",
+                                    nn="01", model=_model())
+            results.append(res)
+
+        assert results[0].frames_done == results[1].frames_done == 1   # どちらも1フレームのみ
+        # 同じ1フレーム目を同じ条件で処理するので、劣化結果も一致する
+        assert np.array_equal(results[0].state.r, results[1].state.r)
+
+
 def test_run_recipe_aging_time_truncates():
     with tempfile.TemporaryDirectory() as d:
         r = Recipe(recipe_name="aging01", input_image=_MOVIE, heatmap=_MOVIE_HT)

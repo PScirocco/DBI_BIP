@@ -247,6 +247,18 @@ class ResumePlan:
     video: Optional[Path] = None      # 継続元の部分動画（連続出力のため先頭に連結）
 
 
+def aging_time_add_frames(dt_accel: float, remaining_seconds: float) -> int:
+    """AGING_TIME（残り目標秒数）から、追加で処理するフレーム数を見積もる。
+
+    ``run_recipe`` 本体と ④実行タブの動画情報表示（評価メモ対応）が同じ計算を
+    共有する。残りが0以下なら0（もう目標達成）、それ以外は**最低1フレーム**
+    （退化防止。目標が1フレーム未満の時間でも、少なくとも1フレームは処理する）。
+    """
+    if dt_accel <= 0 or remaining_seconds <= 0:
+        return 0
+    return max(1, math.ceil(remaining_seconds / dt_accel))
+
+
 def movie_meta(path) -> tuple:
     """動画ファイルの (fps, 総フレーム数) を返す。読めない場合は (0.0, 0)。
 
@@ -377,8 +389,7 @@ def run_recipe(
         target_seconds = float(sim.get("AGING_TIME", 0.0))
         use_target = dt_accel > 0 and target_seconds > 0
         if use_target:
-            remaining = target_seconds - aging_seconds
-            add_frames = max(1, math.ceil(remaining / dt_accel)) if remaining > 0 else 0
+            add_frames = aging_time_add_frames(dt_accel, target_seconds - aging_seconds)
             frames_target = start + add_frames
         else:
             frames_target = frames_total
