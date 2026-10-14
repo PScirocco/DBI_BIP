@@ -143,6 +143,20 @@ def test_run_tab_shows_movie_info_for_selected_step():
     text = win.run_tab.lbl_movie_info.text()
     assert "405" in text        # mov_001_480x270.mp4 の総フレーム数
     assert "00h 00m 13s" in text or "00h 00m 14s" in text   # native長さ（fps由来で丸め差あり）
+    assert "0 (unlimited)" in text and "unlimited" in text   # 既定 AGING_TIME=0
+
+    # ③で AGING_TIME を変えて「この設定を適用」すると、④の表示（設定値・判定）が追従する
+    cfg = win.config_tab
+    win.steps_tab._select_row(0)
+    cfg.sp_aging.setValue(5.0)      # 1周回(約13.5秒)より短い → 打切り
+    cfg._apply()
+    text = win.run_tab.lbl_movie_info.text()
+    assert "00h 00m 05s" in text and "truncat" in text
+
+    cfg.sp_aging.setValue(100.0)    # 1周回より十分長い → 周回
+    cfg._apply()
+    text = win.run_tab.lbl_movie_info.text()
+    assert "00h 01m 40s" in text and "loop" in text
 
     # 静止画ステップは「寄与なし」の表示
     from bisim.model import Recipe

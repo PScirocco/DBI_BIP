@@ -200,12 +200,19 @@ STR: dict[str, dict[str, str]] = {
     "run.btn.sel": {"ja": "▶ 選択ステップのみ実行", "en": "▶ Run selected step"},
     "run.sel_which": {"ja": "実行するステップ", "en": "Step to run"},
     "run.movie_info": {
-        "ja": "動画: {frames}フレーム @ {fps:.2f}fps（ネイティブ長さ {native}）／ "
-              "ACCEL_RATIO={accel} での1周回のAging時間 = {accel_time}"
-              "（AGING_TIMEと比べて短ければ打切り、長ければ周回連結）",
-        "en": "Movie: {frames} frames @ {fps:.2f}fps (native length {native}) / "
-              "at ACCEL_RATIO={accel}, 1 pass = {accel_time} of aging time "
-              "(shorter than AGING_TIME -> loops; longer -> truncates)"},
+        "ja": "動画: {frames}フレーム @ {fps:.2f}fps（ネイティブ長さ {native}）\n"
+              "ACCEL_RATIO={accel} → 1周回のAging時間 = {accel_time}\n"
+              "設定中の AGING_TIME = {target} → {verdict}",
+        "en": "Movie: {frames} frames @ {fps:.2f}fps (native length {native})\n"
+              "ACCEL_RATIO={accel} -> 1 pass = {accel_time} of aging time\n"
+              "Current AGING_TIME = {target} -> {verdict}"},
+    "run.movie_info.unlimited_value": {"ja": "0（無制限）", "en": "0 (unlimited)"},
+    "run.movie_info.verdict_unlimited": {"ja": "無制限（1周回のみ実行）",
+                                         "en": "unlimited (single pass only)"},
+    "run.movie_info.verdict_truncate": {"ja": "1周回の途中で打ち切り",
+                                        "en": "truncates partway through 1 pass"},
+    "run.movie_info.verdict_loop": {"ja": "周回連結（約{n}周回ぶん）",
+                                    "en": "loops (~{n} passes)"},
     "run.movie_info_still": {"ja": "静止画（PQ評価）：Aging時間への寄与なし",
                              "en": "Still image (PQ eval): no aging-time contribution"},
     "run.movie_info_none": {"ja": "（入力ファイル未設定）", "en": "(input file not set)"},

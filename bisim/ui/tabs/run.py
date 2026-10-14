@@ -118,10 +118,27 @@ class RunTab(QWidget):
             return
         native_sec = frames / fps
         accel = float(r.sim_param.get("ACCEL_RATIO", 0.0))
+        pass_sec = native_sec * accel
+        target_sec = float(r.sim_param.get("AGING_TIME", 0.0))
+
+        # 設定中の AGING_TIME を、1周回の時間と比べて「無制限／打切り／周回」を直接表示する
+        # （③で AGING_TIME を変えたら、ここにそのまま反映される）
+        if target_sec <= 0:
+            target_str = t("run.movie_info.unlimited_value")
+            verdict = t("run.movie_info.verdict_unlimited")
+        else:
+            target_str = engine.format_aging(target_sec)
+            if target_sec < pass_sec:
+                verdict = t("run.movie_info.verdict_truncate")
+            else:
+                n = target_sec / pass_sec if pass_sec > 0 else 0.0
+                verdict = t("run.movie_info.verdict_loop", n=f"{n:.1f}")
+
         self.lbl_movie_info.setText(t(
             "run.movie_info", frames=frames, fps=fps,
             native=engine.format_aging(native_sec), accel=f"{accel:g}",
-            accel_time=engine.format_aging(native_sec * accel)))
+            accel_time=engine.format_aging(pass_sec),
+            target=target_str, verdict=verdict))
 
     def update_resume_btn(self):
         if self._running or getattr(self.main, "run_tab", None) is not self:
