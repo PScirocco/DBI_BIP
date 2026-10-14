@@ -2,7 +2,7 @@
 
 - 劣化後プレビュー（動画はフレームスライダ）
 - 輝度残存率マップ（``_deg_{r,g,b}.csv``）：R / G / B / RGB合成。明るい＝劣化していない
-- 累積時間マップ（``_stat_{r,g,b}.csv``）：同上。面内最大で正規化し明暗反転（暗い＝累積大）
+- 累積時間マップ（``_stat_{r,g,b}.csv``）：同上。R/G/B各色ごとに自分の最大値で正規化し明暗反転（暗い＝累積大）
 - 時系列：白紙の軸のみ（中身なし。アルゴリズム担当者間で継続検討）
 - A/B比較：将来枠（無効表示）
 
@@ -30,6 +30,9 @@ class _MapView(QWidget):
 
     各チャネルはそのチャネル色の輝度で表示（黒=劣化大 / 明=劣化小）。RGB合成も可。
     累積時間マップは明暗を反転し、輝度残存率マップと同じ向き（暗=累積大）に揃える。
+    正規化の最大値は R/G/B で共通ではなく**各色ごと**（評価反映3 B-2。チャンネル間で
+    最大値の桁が大きく異なると、共通基準では小さい方のチャンネルが常に明るいまま
+    埋もれて反転が見えにくくなるため）。
     """
 
     def __init__(self, main, kind: str):
@@ -94,26 +97,33 @@ class _MapView(QWidget):
         idx = entry.nn
         label = t("map.label.deg") if self.kind == "deg" else t("map.label.stat")
 
+        # 正規化は色ごと（評価反映3 B-2）：deg は常に 0–1（既に残存率そのもの）、
+        # stat は R/G/B それぞれ自分自身の最大値で正規化してから反転する。
+        # チャンネル間で最大値の桁が大きく違うと、共通の最大値で揃えると他チャンネルが
+        # 常に明るいまま埋もれて反転が見えにくくなるため（RGB合成で特に顕著だった）。
         if self.kind == "deg":
-            vmax, rng = 1.0, t("map.range01")
+            vmax_of = {c: 1.0 for c in "rgb"}
         else:
-            vmax = max((float(np.nanmax(raw[c])) for c in "rgb"), default=1.0) or 1.0
-            rng = t("map.rangev", v=f"{vmax:.3g}")
+            vmax_of = {c: (float(np.nanmax(raw[c])) or 1.0) for c in "rgb"}
 
-        def norm(a):
-            return self._norm(a, vmax)
+        def norm(c):
+            return self._norm(raw[c], vmax_of[c])
 
         sel = self.cmb_ch.currentIndex()
         if sel < 3:
             c = "rgb"[sel]
+            rng = (t("map.range01") if self.kind == "deg"
+                   else t("map.rangev", v=f"{vmax_of[c]:.3g}"))
             self.canvas.show_channel(
-                norm(raw[c]), c,
-                t("map.title.ch", idx=idx, label=label, ch=c.upper(), rng=rng))
+                norm(c), c, t("map.title.ch", idx=idx, label=label, ch=c.upper(), rng=rng))
             a = raw[c]
             self.lbl_stats.setText(t("map.stats.ch", ch=c.upper(),
                                      mn=np.nanmin(a), mx=np.nanmax(a), me=np.nanmean(a)))
         else:
-            rgb = np.stack([norm(raw["r"]), norm(raw["g"]), norm(raw["b"])], axis=-1)
+            rgb = np.stack([norm("r"), norm("g"), norm("b")], axis=-1)
+            rng = (t("map.range01") if self.kind == "deg"
+                   else t("map.rangev_rgb", r=f"{vmax_of['r']:.3g}",
+                          g=f"{vmax_of['g']:.3g}", b=f"{vmax_of['b']:.3g}"))
             self.canvas.show_rgb(rgb, t("map.title.rgb", idx=idx, label=label, rng=rng))
             self.lbl_stats.setText(
                 " / ".join(f"{c.upper()} mean {np.nanmean(raw[c]):.4g}" for c in "rgb"))

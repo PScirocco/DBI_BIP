@@ -273,6 +273,10 @@ STR: dict[str, dict[str, str]] = {
     "map.range01": {"ja": "明＝劣化少 (0–1)", "en": "bright = less degraded (0-1)"},
     "map.rangev": {"ja": "正規化・反転表示: 暗＝累積大 (max {v})",
                    "en": "normalized & inverted: dark = more accumulated (max {v})"},
+    "map.rangev_rgb": {"ja": "正規化・反転表示（R/G/B各色毎に最大値で正規化）: 暗＝累積大"
+                             "（max R={r}, G={g}, B={b}）",
+                       "en": "normalized & inverted (each of R/G/B by its own max): "
+                             "dark = more accumulated (max R={r}, G={g}, B={b})"},
     "map.title.ch": {"ja": "#{idx} {label} {ch}  ({rng})", "en": "#{idx} {label} {ch}  ({rng})"},
     "map.title.rgb": {"ja": "#{idx} {label} RGB合成  ({rng})",
                       "en": "#{idx} {label} RGB composite  ({rng})"},

@@ -305,6 +305,49 @@ def test_run_small_sequence_end_to_end():
         _close(win)   # tempdir を消す前に VideoCapture を解放
 
 
+def test_stat_rgb_composite_normalizes_each_channel_independently():
+    """評価反映3 B-2: R/G/Bの最大値の桁が大きく違っても、RGB合成はチャンネルごとに
+    自分の最大値で正規化する（共通の最大値だと小さい方が常に明るいまま埋もれていた）。
+    """
+    if not _pyside_ok():
+        return
+    import numpy as np
+    from bisim.ui.main_window import ResultEntry
+    win = _new_window()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            # 2行以上にする（1行だと np.loadtxt が1次元配列として読み込んでしまうため）
+            arrs = {"r": np.array([[0.0, 1.0], [0.0, 0.0]]),
+                   "g": np.array([[0.0, 10.0], [0.0, 0.0]]),
+                   "b": np.array([[0.0, 100.0], [0.0, 0.0]])}
+            outputs = {}
+            for c, a in arrs.items():
+                p = d / f"stat_{c}.csv"
+                np.savetxt(p, a, delimiter=",")
+                outputs[f"stat_{c}"] = p
+                dp = d / f"deg_{c}.csv"
+                np.savetxt(dp, np.array([[1.0, 0.5], [1.0, 1.0]]), delimiter=",")
+                outputs[f"deg_{c}"] = dp
+            win.results[1] = ResultEntry(nn=1, recipe_name="x", is_movie=False, outputs=outputs)
+            win.results_tab.add_result(1)
+            vs = win.results_tab.view_stat
+            vs.cmb_ch.setCurrentIndex(3)   # RGB合成
+
+            captured = {}
+            vs.canvas.show_rgb = lambda rgb, title="": captured.update(rgb=rgb.copy(), title=title)
+            vs.reload()
+
+            rgb = captured["rgb"]
+            # 各色「自分の最大値」の画素(列1)で、その色成分が暗(0)になっている＝各色独立正規化
+            assert rgb[0, 1, 0] == 0.0   # R: 自分の最大値(1.0)の画素でRが暗
+            assert rgb[0, 1, 1] == 0.0   # G: 自分の最大値(10.0)の画素でGが暗
+            assert rgb[0, 1, 2] == 0.0   # B: 自分の最大値(100.0)の画素でBが暗
+            assert "R=1" in captured["title"] and "G=10" in captured["title"] and "B=100" in captured["title"]
+    finally:
+        _close(win)
+
+
 def test_run_sequence_with_fixed_heatmap_end_to_end():
     """ヒートマップなし（固定温度）: IP設計者レビュー2 (2)。ヒートマップファイル無しで実行できる。"""
     if not _pyside_ok():
