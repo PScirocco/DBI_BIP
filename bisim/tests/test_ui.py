@@ -129,6 +129,31 @@ def test_add_edit_recipe_via_tabs():
     _close(win)
 
 
+def test_run_tab_shows_movie_info_for_selected_step():
+    """評価メモ #1: ④Runタブに動画のフレーム数・ACCEL_RATIO換算の1周回時間を表示する。"""
+    if not _pyside_ok():
+        return
+    win = _new_window()
+    win.sequence.folders["input_image"] = str(_COMMON)
+    win.sequence.folders["heatmap"] = str(_COMMON)
+    win.sequence.recipes = [_movie_recipe("aging01")]
+    win.sequence.recipes[0].sim_param["ACCEL_RATIO"] = 1.0
+    win.steps_changed()
+    win.run_tab.cmb_sel.setCurrentIndex(0)
+    text = win.run_tab.lbl_movie_info.text()
+    assert "405" in text        # mov_001_480x270.mp4 の総フレーム数
+    assert "00h 00m 13s" in text or "00h 00m 14s" in text   # native長さ（fps由来で丸め差あり）
+
+    # 静止画ステップは「寄与なし」の表示
+    from bisim.model import Recipe
+    from bisim.ui.i18n import t
+    win.sequence.recipes = [Recipe(recipe_name="pq01", input_image=_STILL, heatmap=_STILL_HT)]
+    win.steps_changed()
+    win.run_tab.cmb_sel.setCurrentIndex(0)
+    assert win.run_tab.lbl_movie_info.text() == t("run.movie_info_still")
+    _close(win)
+
+
 def test_aging_time_field_via_config_tab():
     if not _pyside_ok():
         return

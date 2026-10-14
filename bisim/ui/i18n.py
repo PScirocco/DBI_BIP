@@ -199,6 +199,16 @@ STR: dict[str, dict[str, str]] = {
     "run.btn.all": {"ja": "▶ 全ステップ実行", "en": "▶ Run all steps"},
     "run.btn.sel": {"ja": "▶ 選択ステップのみ実行", "en": "▶ Run selected step"},
     "run.sel_which": {"ja": "実行するステップ", "en": "Step to run"},
+    "run.movie_info": {
+        "ja": "動画: {frames}フレーム @ {fps:.2f}fps（ネイティブ長さ {native}）／ "
+              "ACCEL_RATIO={accel} での1周回のAging時間 = {accel_time}"
+              "（AGING_TIMEと比べて短ければ打切り、長ければ周回連結）",
+        "en": "Movie: {frames} frames @ {fps:.2f}fps (native length {native}) / "
+              "at ACCEL_RATIO={accel}, 1 pass = {accel_time} of aging time "
+              "(shorter than AGING_TIME -> loops; longer -> truncates)"},
+    "run.movie_info_still": {"ja": "静止画（PQ評価）：Aging時間への寄与なし",
+                             "en": "Still image (PQ eval): no aging-time contribution"},
+    "run.movie_info_none": {"ja": "（入力ファイル未設定）", "en": "(input file not set)"},
     "run.btn.pause": {"ja": "❚❚ 中断", "en": "❚❚ Pause"},
     "run.btn.resume": {"ja": "▶ 再開", "en": "▶ Resume"},
     "run.btn.stop": {"ja": "■ 停止（保存確認）", "en": "■ Stop (save prompt)"},

@@ -10,11 +10,14 @@
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QPlainTextEdit, QProgressBar, QPushButton,
     QVBoxLayout, QWidget,
 )
 
+from bisim import engine
 from bisim.model import Sequence
 from bisim.ui.i18n import t
 from bisim.ui.widgets import ImagePanel
@@ -36,11 +39,19 @@ class RunTab(QWidget):
         row1.addWidget(self.lbl_sel)
         self.cmb_sel = QComboBox()
         self.cmb_sel.currentIndexChanged.connect(lambda _=0: self.update_resume_btn())
+        self.cmb_sel.currentIndexChanged.connect(lambda _=0: self._update_movie_info())
         row1.addWidget(self.cmb_sel, 1)
         self.b_sel = QPushButton(t("run.btn.sel"))
         self.b_sel.clicked.connect(lambda: self.main.run_steps("selected"))
         row1.addWidget(self.b_sel)
         lay.addLayout(row1)
+
+        # 選択中レシピの動画情報（評価メモ #1）：フレーム数・fps・ネイティブ長さ・
+        # 現在のACCEL_RATIOで1周回がどれだけのAging時間になるか。AGING_TIME を
+        # 設定する前に「打ち切りになるか周回になるか」の見積りに使う
+        self.lbl_movie_info = QLabel(t("run.movie_info_none"))
+        self.lbl_movie_info.setWordWrap(True)
+        lay.addWidget(self.lbl_movie_info)
 
         row2 = QHBoxLayout()
         self.b_pause = QPushButton(t("run.btn.pause"))
@@ -85,6 +96,32 @@ class RunTab(QWidget):
             self.cmb_sel.setCurrentIndex(cur)
         self.cmb_sel.blockSignals(False)
         self.update_resume_btn()
+        self._update_movie_info()
+
+    def _update_movie_info(self):
+        idx = self.selected_index()
+        rs = self.main.sequence.recipes
+        if idx is None or not (0 <= idx < len(rs)):
+            self.lbl_movie_info.setText(t("run.movie_info_none"))
+            return
+        r = rs[idx]
+        if r.kind != "aging":
+            self.lbl_movie_info.setText(t("run.movie_info_still"))
+            return
+        path = Path(self.main.sequence.folders["input_image"]) / r.input_image
+        if not r.input_image or not path.exists():
+            self.lbl_movie_info.setText(t("run.movie_info_none"))
+            return
+        fps, frames = engine.movie_meta(path)
+        if fps <= 0 or frames <= 0:
+            self.lbl_movie_info.setText(t("run.movie_info_none"))
+            return
+        native_sec = frames / fps
+        accel = float(r.sim_param.get("ACCEL_RATIO", 0.0))
+        self.lbl_movie_info.setText(t(
+            "run.movie_info", frames=frames, fps=fps,
+            native=engine.format_aging(native_sec), accel=f"{accel:g}",
+            accel_time=engine.format_aging(native_sec * accel)))
 
     def update_resume_btn(self):
         if self._running or getattr(self.main, "run_tab", None) is not self:
@@ -173,6 +210,7 @@ class RunTab(QWidget):
         self.b_stop.setText(t("run.btn.stop"))
         self.b_resume_stop.setText(t("run.btn.resume_stop"))
         self.preview.set_title(t("run.preview"))
+        self._update_movie_info()
         if not self._running:
             self.lbl_step.setText(t("run.idle"))
             self.lbl_frame.setText(t("run.dash"))

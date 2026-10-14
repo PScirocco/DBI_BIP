@@ -247,6 +247,21 @@ class ResumePlan:
     video: Optional[Path] = None      # 継続元の部分動画（連続出力のため先頭に連結）
 
 
+def movie_meta(path) -> tuple:
+    """動画ファイルの (fps, 総フレーム数) を返す。読めない場合は (0.0, 0)。
+
+    ④実行タブで「選択中のレシピは何フレームか／ACCEL_RATIO換算で1周回がどれだけの
+    Aging時間になるか」を表示するために使う（評価メモ #1）。
+    """
+    cap = cv2.VideoCapture(str(path))
+    try:
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    finally:
+        cap.release()
+    return fps, frames
+
+
 def format_aging(seconds: float) -> str:
     """加速込み Aging 時間の表示。
 
