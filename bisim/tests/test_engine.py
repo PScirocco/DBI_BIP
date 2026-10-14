@@ -171,9 +171,11 @@ def test_run_sequence_chains_prev():
 
 
 def test_format_aging():
-    assert engine.format_aging(3600) == "1.00 h"
-    assert engine.format_aging(0) == "0.00 h"
-    assert "day" in engine.format_aging(3600 * 100)
+    assert engine.format_aging(3600) == "01h 00m 00s"
+    assert engine.format_aging(0) == "00h 00m 00s"
+    assert engine.format_aging(10) == "00h 00m 10s"          # 小さい値も見える（評価反映3 B-3）
+    assert engine.format_aging(20) == "00h 00m 20s"
+    assert "d " in engine.format_aging(3600 * 100)            # 100h = 4日4時間
 
 
 def _movie_count(path) -> int:

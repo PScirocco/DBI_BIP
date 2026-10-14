@@ -248,11 +248,18 @@ class ResumePlan:
 
 
 def format_aging(seconds: float) -> str:
-    """加速込み Aging 時間の表示（既定は時間、48h 超は日も併記）。"""
-    h = seconds / 3600.0
-    if h >= 48:
-        return f"{h / 24:.1f} day ({h:,.0f} h)"
-    return f"{h:.2f} h"
+    """加速込み Aging 時間の表示。
+
+    時:分:秒（``00h 00m 00s``）。小さい ACCEL_RATIO 等で数十秒規模になる場合も
+    分かるように、時間の小数表示（例 ``0.00 h``）ではなく hms で表す（評価反映3 (B-3)）。
+    24時間を超える場合は日数も先頭に付ける（例 ``4d 04h 00m 00s``）。
+    """
+    total = max(0, int(round(seconds)))
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    hms = f"{hours:02d}h {minutes:02d}m {secs:02d}s"
+    return f"{days}d {hms}" if days > 0 else hms
 
 
 # --------------------------------------------------------------------------- #
