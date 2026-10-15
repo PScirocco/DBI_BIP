@@ -27,7 +27,7 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `AMOLED_Image_sticking_prevention_compensation_v01.pptx`（2018, Matsui） | DBI補正アルゴリズムの理論。劣化モデルの根拠 |
 | `Platform Concept for DBI & BIP development.pptx`（2026.07, Matsui & Isobe） | シミュレータ＋DBI/BIP評価プラットフォームの構想 |
 
-## 現在の状況（2026-09-14）
+## 現在の状況（2026-10-15）
 
 - UX検証プロトタイプ（`prototype/`）は完成、**2026-09-03 に IP設計者レビュー実施済み**。
 - レビュー結果を反映した**本番GUIを新パッケージ `bisim/` として実装中**（プロトタイプは参照用に残す）。
@@ -49,12 +49,36 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 - **2026-10-05 IP設計者レビュー3**（`docs/progress/261013_IP設計者レビュー3_実装方針.md`）。変更5〜7 **実装済み 2026-10-13**：
   (5) `deg` の UI 表記を「輝度残存率 / Lum. residual」に変更、(6) 累積時間マップを明暗反転（暗＝累積大）、
   (7) ⑤プレビューのフレームスライダに Aging 時間を併記（`RunResult.dt_accel` → `ResultEntry`）。
-  変更8（ブロック分割統計＋ヒストグラム）は別スコープ・仕様確認待ち。対応後の EXE 再ビルド・再配布が未了。selftest 70/70。
-- 残：フェーズF（T10 IP設計者コア差し替え・結合試験・原理確認。10月初〜、コア受領後）。
-- IP設計者のアルゴリズムコア着手は**10月初め**。統合 → 原理確認 → 社内試用 を経て10月末完成予定。
+  変更8（ブロック分割統計＋ヒストグラム）は別スコープ・仕様確認待ち。
+- **2026-10-13 別PCで初回ビルド・起動成功 → 2026-10-14 実機EXEで評価チェック実施**
+  （`docs/progress/261014B_動作確認チェックリスト.md`。現在は**全項目OK**）。この評価で見つかった3点に対応済み：
+  - 累積時間マップのRGB合成が色ごとに正規化されておらず反転が見えにくい → **R/G/Bを各色独自の最大値で正規化**する方式に変更（`results.py::_MapView`）
+  - Aging時間表示が時間の小数（`0.00 h`）で小さい値が見えない → **`format_aging()` を時:分:秒表示**に変更（`00h 00m 10s`、24h超は日数も付記）。④・⑤・停止再開ダイアログ等すべてに反映
+  - **AGING_TIMEを変えても結果が同じに見える**（担当者が実機ログ`eval_test/BISim_*.log`で報告）→ 原因判明：既定 ACCEL_RATIO=30000 では1フレーム＝約1000秒になり、小さいAGING_TIME（例 10秒・20秒）はどちらも「最低1フレームは処理する」ルールに丸められ区別できない。**バグではなく仕様上の粒度の制約**。④実行タブに選択ステップの動画情報（フレーム数・fps・1周回のAging時間・AGING_TIMEの判定＋見積りフレーム数）を表示する機能を追加して解消（`engine.movie_meta` / `engine.aging_time_add_frames`）
+  - 評価メモの他2件：「結果リセット」専用ボタンは**保留**（要望として記録のみ）、Initial Stress="none"で0スタートになることは確認済み回答
+  - selftest **74/74**
+- 2026-10-15 時点の対外共有ドキュメント：`docs/review/劣化Sim_ツール評価結果_261013.xlsx`（レビュー3への回答＋9月末/10月の変更一覧をコメント列・追加行で記載）、
+  `docs/progress/261014B_動作確認チェックリスト.md`（評価結果・全項目OK）、`docs/progress/2026-10-15_進捗報告04_presen.md`。
+  いずれも `team/Meeting/20261015/horibe/` にPDF/xlsxで配置済み。
+- 残：フェーズF（T10 IP設計者コア差し替え・結合試験・原理確認）。
+- **`team/Meeting/` に DBI&BIP チームの共有資料あり**（日付→メンバー名のフォルダ構成）。
+  松井氏＝DBIモデル／理論・劣化Simulatorコア担当、礒部氏＝BIP実機検証・Heat Map物理モデル担当。
+  2026-10-15時点で把握した、フェーズF着手時に影響しうる点：
+  - 劣化モデルの温度依存の入れ方を変更予定（β側ではなくストレス累積側に温度依存を入れる。
+    `team/Meeting/20261008/matsui/Proposals for DBI model_v.0.0.0_261002.pptx`）
+  - 入力CSVの仕様変更の可能性：`bcsetting.csv` に `ABL_LIMIT` 追加・15Band分のVI-LUT＋Duty化、
+    `simconf.csv` に `PEAK_L`（DBVではなくPeak輝度で設定）追加
+    （`team/Meeting/20261015/matsui/劣化Simulator_CorePart進捗.pptx`）
+  - 礒部氏がHeat Mapの物理予測モデル（画像content→温度分布、簡易モデルrev2）を開発中。
+    将来的にbisimのヒートマップ入力の自動生成元になり得る
+  - BIP開発はPhase2で劣化Simulator（bisim）を使った効果検証を計画（Phase1のHW実機検証が現在進行中）
+  - 目標Aging時間の実例は500h/1000h規模（AGING_TIME機能の実用レンジ感の参考）
+- IP設計者のアルゴリズムコア着手は当初**10月初め**予定だったが、10/8MTG時点では
+  「10月中にコアモデル作成・実装」に（やや後ろ倒し）。コア部分以外はGUI評価フィードバック対応を優先、
+  本格運用はモデルパラメータ準備後（年内は困難）の見込み。
 - 当面先/スコープ外：出力マップの画像フォーマット化＋専用ビューア、CPU並列（画像分割）、
   DBI/BIP補正実装、実機データ比較・モデル修正。
-- 経緯・スケジュールは `docs/progress/`。
+- 経緯・スケジュールは `docs/progress/`、チーム全体の経緯は `team/Meeting/`。
 
 ## 本番GUI `bisim/`（実装中）
 
@@ -65,9 +89,9 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name`（`_`→`-`）、`stop_dir`（`_stops/` チェックポイントのフォルダ名） | A/D |
 | `paramio.py` | model/sim パラメータ CSV I/O（CLI版 `degparam_mm.csv` / `simconf.csv` と互換） | B |
 | `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） | B |
-| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に。`AGING_TIME`>0 で目標時間駆動＝超過打切り／不足なら動画を周回連結、`resume_from` が周回をまたぐ場合は `% frames_total` でシーク）/ `run_sequence` / 出力の確定・破棄 / `format_aging` | B/D |
+| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に。`AGING_TIME`>0 で目標時間駆動＝超過打切り／不足なら動画を周回連結、`resume_from` が周回をまたぐ場合は `% frames_total` でシーク、見積りは `aging_time_add_frames()` に共通化）/ `run_sequence` / 出力の確定・破棄 / `format_aging`（時:分:秒表示）/ `movie_meta`（fps・総フレーム数） | B/D |
 | `logio.py` | `Logger`（`_log_BISim/` セッションローテーション＝起動ごとに新ファイル。容量超過時は同一セッション内でも新パートへ、総容量上限、画面表示 listener） | B |
-| `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ） | C/D |
+| `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ。`run.py`④に選択ステップの動画情報＋AGING_TIME判定ラベル、`results.py`⑤の累積時間マップはR/G/B各色独自の最大値で正規化） | C/D |
 | `installer/` | `bisim.spec`（PyInstaller 6.x・onedir）/ `bisim_launcher.py` / `build_exe.ps1` / `README.md`。手順は `docs/EXEビルド手順書.md` | E |
 
 - 実行：`python -m bisim`（GUI 起動）／ `python -m bisim --info`（データ層＋エンジン確認）／ **テスト：`python -m bisim.selftest`（pytest 不要、テストモジュールごとに別プロセス。`test_ui` は `QT_QPA_PLATFORM=offscreen` 推奨。個別は `python -m bisim.selftest test_engine`）**
@@ -92,8 +116,14 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 - `docs/GUI仕様.md` — 本番GUIの確定仕様（Config構造・命名規則・タブ別仕様・状態遷移）。9月実装フェーズの基準
 - `docs/実装計画.md` — 9月フェーズの実装タスク（T1〜T10、フェーズA〜Fに区分、この順で進める）。チェックボックスで進捗管理。フェーズ完了判定＝全チェック＋selftest 全pass＋commit
 - `docs/EXEビルド手順書.md` — PyInstaller で EXE を作る手順（前提・ビルド・確認・トラブルシュート・onefile）
-- `docs/progress/` — 進捗報告・レビュー記録（`260903_*`）・評価チェック結果（`260907_評価チェックシート_checked.md`）・
-  評価反映方針（`260909_評価反映_実装方針.md`）・IP設計者2回目レビュー原文（`260910_DBI&BIP_prog_mtg.txt`）と反映方針（`260910_評価反映2_実装方針.md`）
+- `docs/progress/` — 進捗報告（`2026-09-01_*`〜`2026-10-15_進捗報告04_presen.md`）・レビュー記録（`260903_*`）・
+  評価チェック結果（`260907_評価チェックシート_checked.md`／`261014B_動作確認チェックリスト.md`＝最新・全項目OK）・
+  評価反映方針（`260909_評価反映_実装方針.md`／`260910_評価反映2_実装方針.md`／`261013_IP設計者レビュー3_実装方針.md`）・
+  IP設計者2回目レビュー原文（`260910_DBI&BIP_prog_mtg.txt`）
+- `docs/review/劣化Sim_ツール評価結果_261013.xlsx` — IP設計者レビュー3（元資料は261005）への回答・対応をコメント列に記載、
+  9月末〜10月の変更一覧を追加行で記載（別名保存。元の`_261005.xlsx`は無変更）
+- `team/Meeting/` — DBI&BIPチーム全体の共有資料（日付→メンバー名フォルダ）。松井氏＝DBIモデル理論・
+  劣化Simulatorコア担当、礒部氏＝BIP実機検証・Heat Map物理モデル担当。会議議事録 `meeting_minutes_DBI&BIP_dev_*.txt`
 - `docs/理解と方針.md` — コードと資料の対応、モデル式の解説、実装ステータス、GUI方針
 - 図解（Artifact, 要ログイン）: https://claude.ai/code/artifact/1d4f42d1-9610-4952-b669-e83fc9571caf
   （時間×電流の履歴 / Δη₁・Δη₂の2成分分解 / Iref換算 / コード対応）
@@ -123,6 +153,10 @@ deg  = exp( -( stat ** (B0 + A·temp) ) )
 （ファイル名トークンは `deg` / `stat` 維持）。加速込みAging時間 = (フレーム数/fps)×`ACCEL_RATIO`。
 `AGING_TIME`[秒]はこの加速込みAging時間の**目標値**（`0`＝無制限）。超過なら打ち切り、不足なら
 動画を周回連結して埋める（`bisim/engine.py::run_recipe`。`source/` 側は無改変・未使用のまま）。
+**注意（粒度）**：1フレームあたりの加速込み時間 ＝ `(1/fps)×ACCEL_RATIO`。既定値（30fps・ACCEL_RATIO=30000）
+だと約1000秒/フレームになるため、AGING_TIMEがそれより小さい値はどれも「最低1フレーム処理」に
+丸められ区別できない（バグではない。④タブの見積りフレーム数表示で事前に確認できる）。
+`format_aging()` の表示は時:分:秒（`00h 00m 10s`。24h超は日数も付記）で、時間の小数表示はしない。
 
 ## 環境メモ
 
