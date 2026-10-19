@@ -158,14 +158,113 @@ def test_run_tab_shows_movie_info_for_selected_step():
     text = win.run_tab.lbl_movie_info.text()
     assert "00h 01m 40s" in text and "loop" in text
 
-    # 静止画ステップは「寄与なし」の表示
+    # PQ評価ステップは「Aging しない」の表示（動画でも静止画でも）
     from bisim.model import Recipe
     from bisim.ui.i18n import t
     win.sequence.recipes = [Recipe(recipe_name="pq01", input_image=_STILL, heatmap=_STILL_HT)]
     win.steps_changed()
     win.run_tab.cmb_sel.setCurrentIndex(0)
-    assert win.run_tab.lbl_movie_info.text() == t("run.movie_info_still")
+    assert win.run_tab.lbl_movie_info.text() == t("run.movie_info_eval")
+    win.sequence.recipes = [Recipe(recipe_name="pq02", input_image=_MOVIE, step_type="eval")]
+    win.steps_changed()
+    win.run_tab.cmb_sel.setCurrentIndex(0)
+    assert win.run_tab.lbl_movie_info.text() == t("run.movie_info_eval")
+
+    # 静止画 Aging は fps=1 の見積り（1フレーム = 1秒 × ACCEL_RATIO）
+    r = Recipe(recipe_name="age01", input_image=_STILL, step_type="aging")
+    r.sim_param["ACCEL_RATIO"] = 60.0
+    r.sim_param["AGING_TIME"] = 600.0
+    win.sequence.recipes = [r]
+    win.steps_changed()
+    win.run_tab.cmb_sel.setCurrentIndex(0)
+    text = win.run_tab.lbl_movie_info.text()
+    assert "00h 01m 00s" in text and "10" in text and "00h 10m 00s" in text
     _close(win)
+
+
+def test_step_type_selector_switches_settings():
+    """③ステップ種別を手動で選ぶ。PQ評価ではヒートマップ・Sim条件（Aging条件）を隠す。"""
+    if not _pyside_ok():
+        return
+    from bisim.ui.i18n import t
+    win = _new_window()
+    win.steps_tab._add()
+    cfg = win.config_tab
+    r = win.sequence.recipes[0]
+    assert r.step_type == "aging" and cfg.cmb_kind.currentIndex() == 0
+    assert cfg.gb_sim.isVisibleTo(cfg) and cfg._f1.isRowVisible(cfg._row_ht)
+
+    cfg.ed_name.setText("pq_A")             # 未適用の入力が種別変更で消えないこと
+    cfg.cmb_kind.setCurrentIndex(1)         # → PQ評価（即時反映）
+    assert r.step_type == "eval"
+    assert not cfg.gb_sim.isVisibleTo(cfg)
+    assert not cfg._f1.isRowVisible(cfg._row_ht) and not cfg._f1.isRowVisible(cfg._row_ht_fixed)
+    assert cfg.ed_name.text() == "pq_A"
+    assert win.steps_tab.table.item(0, 3).text() == t("kind.eval")    # ②の Type 列
+    assert cfg._collect_into_recipe() and r.step_type == "eval" and r.recipe_name == "pq_A"
+
+    cfg.cmb_kind.setCurrentIndex(0)         # → Aging に戻すと欄が戻る
+    assert r.step_type == "aging" and cfg.gb_sim.isVisibleTo(cfg)
+    assert win.steps_tab.table.item(0, 3).text() == t("kind.aging")
+    _close(win)
+
+
+def test_pick_file_rejects_different_image_size():
+    """画像サイズ：シーケンスの基準（最初に選んだ画像）と違う画像は警告して選ばせない。"""
+    if not _pyside_ok():
+        return
+    import cv2
+    import numpy as np
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    win = _new_window()
+    warned = []
+    orig_o, orig_w = QFileDialog.getOpenFileName, QMessageBox.warning
+    QMessageBox.warning = staticmethod(lambda *a, **k: warned.append(a[2] if len(a) > 2 else ""))
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            small = Path(d) / "small_240x512.png"
+            cv2.imencode(".png", np.zeros((512, 240, 3), np.uint8))[1].tofile(str(small))
+            win.sequence.folders["input_image"] = str(_COMMON)
+            win.sequence.folders["heatmap"] = str(_COMMON)
+            win.steps_tab._add()
+            win.steps_tab._add()
+            cfg = win.config_tab
+
+            def pick(row, key, path):
+                win.steps_tab._select_row(row)
+                QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(path), ""))
+                cfg._pick_file(key)
+
+            pick(0, "input_image", _COMMON / _MOVIE)          # 最初の画像（480x270）＝基準
+            assert win.sequence.recipes[0].input_image == _MOVIE and not warned
+            pick(1, "input_image", _COMMON / _STILL)          # 静止画でも同サイズなら可
+            assert win.sequence.recipes[1].input_image == _STILL and not warned
+            pick(1, "input_image", small)                     # サイズ違い → 選択不可
+            assert win.sequence.recipes[1].input_image == _STILL
+            assert len(warned) == 1 and "240" in warned[0] and "480" in warned[0]
+            assert win.sequence.folders["input_image"] == str(_COMMON)   # フォルダも変えない
+            pick(0, "heatmap", small)                         # ヒートマップも同じ判定
+            assert win.sequence.recipes[0].heatmap == "" and len(warned) == 2
+            pick(0, "heatmap", _COMMON / _MOVIE_HT)
+            assert win.sequence.recipes[0].heatmap == _MOVIE_HT and len(warned) == 2
+            _close(win)
+    finally:
+        QFileDialog.getOpenFileName, QMessageBox.warning = orig_o, orig_w
+
+
+def test_previous_step_preview_wording():
+    """③プレビューの文言は「前ステップの画像」（議事録 261015 の指摘3）。"""
+    from bisim.ui import i18n
+    from bisim.ui.i18n import t
+    old = i18n.LANG
+    try:
+        i18n.LANG = "ja"
+        assert t("cfg.pv.prev") == "前ステップの画像"
+        assert t("cfg.pv.prev_named", name="x.mp4") == "前ステップの画像（x.mp4）"
+        i18n.LANG = "en"
+        assert t("cfg.pv.prev") == "Previous step image"
+    finally:
+        i18n.LANG = old
 
 
 def test_aging_time_field_via_config_tab():

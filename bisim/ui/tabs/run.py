@@ -105,12 +105,26 @@ class RunTab(QWidget):
             self.lbl_movie_info.setText(t("run.movie_info_none"))
             return
         r = rs[idx]
-        if r.kind != "aging":
-            self.lbl_movie_info.setText(t("run.movie_info_still"))
+        if r.is_eval:
+            self.lbl_movie_info.setText(t("run.movie_info_eval"))
             return
         path = Path(self.main.sequence.folders["input_image"]) / r.input_image
         if not r.input_image or not path.exists():
             self.lbl_movie_info.setText(t("run.movie_info_none"))
+            return
+        if path.suffix.lower() != ".mp4":
+            # 静止画 Aging：同じ絵を fps=1 で繰り返す（run_recipe と同じ見積り）
+            accel = float(r.sim_param.get("ACCEL_RATIO", 0.0))
+            dt_accel = accel / engine.STILL_AGING_FPS
+            target_sec = float(r.sim_param.get("AGING_TIME", 0.0))
+            if target_sec > 0:
+                target_str = engine.format_aging(target_sec)
+                n_frames = engine.aging_time_add_frames(dt_accel, target_sec)
+            else:
+                target_str, n_frames = t("run.movie_info_still_aging.zero"), 1
+            self.lbl_movie_info.setText(t(
+                "run.movie_info_still_aging", accel=f"{accel:g}",
+                accel_time=engine.format_aging(dt_accel), target=target_str, frames=n_frames))
             return
         fps, frames = engine.movie_meta(path)
         if fps <= 0 or frames <= 0:

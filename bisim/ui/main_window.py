@@ -76,13 +76,23 @@ class SimWorker(QThread):
             idx = self._indices[pos]
             r = self.sequence.recipes[idx]
             self.sig_step.emit(pos, n, r.recipe_name)
-            self._dt_accel = (float(r.sim_param["ACCEL_RATIO"]) / ft) if ft > 1 else 0.0
+            self._dt_accel = self._seconds_per_frame(r)
         if fd == ft or fd % 10 == 0 or fd == 1:
             from bisim.ui.widgets import bgr_to_qimage
             qimg = bgr_to_qimage(preview_bgr) if preview_bgr is not None else None
             self.sig_progress.emit(pos, n, fd, ft, qimg)
             live = self._cum_done + fd * self._dt_accel
             self.sig_aging.emit(engine.format_aging(live))
+
+    def _seconds_per_frame(self, r: Recipe) -> float:
+        """ライブ表示用の1フレームあたりの加速込み Aging 時間（run_recipe と同じ規則）。"""
+        if r.is_eval:
+            return 0.0                               # 評価ステップは Aging しない
+        accel = float(r.sim_param["ACCEL_RATIO"])
+        if Path(r.input_image).suffix.lower() == ".mp4":
+            fps, _ = engine.movie_meta(Path(self.sequence.folders["input_image"]) / r.input_image)
+            return accel / fps if fps > 0 else 0.0
+        return accel / engine.STILL_AGING_FPS
 
     def _step_done(self, res: engine.RunResult):
         if res.stopped:
@@ -412,7 +422,10 @@ class MainWindow(QMainWindow):
         if i is None:
             return None
         st = self._stopped_states.get(i + 1)
-        return i + 1 if (st is not None and st.is_movie) else None
+        if st is None:
+            return None
+        # 動画（Aging・評価とも）と静止画 Aging は途中から再開できる。静止画の評価は1フレームなので対象外
+        return i + 1 if (st.is_movie or not self.sequence.recipes[i].is_eval) else None
 
     # ---- 停止状態（_stopped_states ⇔ sequence.stops）の同期・永続化 ----
     def _set_stop(self, nn: int, st: StopState) -> None:
@@ -476,7 +489,7 @@ class MainWindow(QMainWindow):
             only = None
             check = list(range(len(rs)))
         for i in check:
-            needs_heatmap = rs[i].heatmap_mode != "fixed"
+            needs_heatmap = not rs[i].is_eval and rs[i].heatmap_mode != "fixed"
             if not rs[i].input_image or (needs_heatmap and not rs[i].heatmap):
                 QMessageBox.warning(self, t("run.msg.title"), t("run.msg.unset", n=i + 1))
                 return

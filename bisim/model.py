@@ -32,6 +32,8 @@ DEFAULT_SIM: dict[str, float] = {
 }
 
 INIT_STRESS = ("none", "prev", "file")
+# ステップ種別（手動選択）: aging＝ストレスを貯める / eval＝貯めない（劣化後の見え方だけ作る）
+STEP_TYPES = ("aging", "eval")
 HEATMAP_MODES = ("file", "fixed")     # fixed = ヒートマップなし・パネル全面を固定温度
 
 CHECKPOINT_ROOT = "_stops"     # 出力フォルダ配下の停止チェックポイント置き場
@@ -103,6 +105,11 @@ class StopState:
         )
 
 
+def default_step_type(input_image: str) -> str:
+    """種別が未指定のときの既定（旧仕様の拡張子判定と同じ）: .png→eval、それ以外→aging。"""
+    return "eval" if Path(input_image or "").suffix.lower() == ".png" else "aging"
+
+
 # --------------------------------------------------------------------------- #
 @dataclass
 class Recipe:
@@ -119,11 +126,23 @@ class Recipe:
     sim_param_csv: str = ""
     init_stress: str = "none"             # none | prev | file
     init_stress_files: dict = field(default_factory=dict)      # {"r":name,...} for "file"
+    # ステップ種別（"aging" | "eval"）。入力が動画か静止画かとは独立に手動で選ぶ。
+    # 空のまま作ると入力ファイルの拡張子から決める（.png→eval、それ以外→aging）。
+    # 種別の欄が無い旧 JSON も同じ規則で読み込むので、従来のシーケンスは同じ動作になる。
+    step_type: str = ""
+
+    def __post_init__(self) -> None:
+        if self.step_type not in STEP_TYPES:
+            self.step_type = default_step_type(self.input_image)
 
     @property
     def kind(self) -> str:
-        ext = Path(self.input_image).suffix.lower()
-        return {".mp4": "aging", ".png": "pq"}.get(ext, "unknown")
+        """ステップ種別（``step_type`` と同じ。UI 表示・判定用の別名）。"""
+        return self.step_type
+
+    @property
+    def is_eval(self) -> bool:
+        return self.step_type == "eval"
 
     def validate(self) -> list[str]:
         problems: list[str] = []
@@ -133,6 +152,8 @@ class Recipe:
             problems.append(f"init_stress が不正: {self.init_stress!r}")
         if self.heatmap_mode not in HEATMAP_MODES:
             problems.append(f"heatmap_mode が不正: {self.heatmap_mode!r}")
+        if self.step_type not in STEP_TYPES:
+            problems.append(f"step_type が不正: {self.step_type!r}")
         for k in MODEL_KEYS:
             v = self.model_param.get(k)
             if not (isinstance(v, list) and len(v) == 3):
@@ -149,6 +170,7 @@ class Recipe:
     def to_dict(self) -> dict:
         return {
             "recipe_name": self.recipe_name,
+            "step_type": self.step_type,
             "input_image": self.input_image,
             "heatmap": self.heatmap,
             "heatmap_mode": self.heatmap_mode,
@@ -181,8 +203,12 @@ class Recipe:
             fixed_temp_c = float(d.get("fixed_temp_c", 25.0))
         except (TypeError, ValueError):
             fixed_temp_c = 25.0
+        step_type = d.get("step_type", "")
+        if step_type not in STEP_TYPES:
+            step_type = ""                   # 旧 JSON：拡張子から決める（__post_init__）
         return cls(
             recipe_name=str(d.get("recipe_name", "recipe")),
+            step_type=step_type,
             input_image=str(d.get("input_image", "")),
             heatmap=str(d.get("heatmap", "")),
             heatmap_mode=ht_mode,

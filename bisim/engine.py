@@ -290,8 +290,68 @@ def format_aging(seconds: float) -> str:
 
 
 # --------------------------------------------------------------------------- #
+#  画像サイズ（シーケンス内で全画像を同じサイズにそろえる）
+# --------------------------------------------------------------------------- #
+def media_size(path) -> Optional[tuple]:
+    """画像・動画の ``(幅, 高さ)``。読めなければ ``None``。"""
+    p = Path(path)
+    if not p.is_file():
+        return None
+    if p.suffix.lower() == ".mp4":
+        cap = cv2.VideoCapture(str(p))
+        try:
+            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        finally:
+            cap.release()
+        return (w, h) if w > 0 and h > 0 else None
+    img = imio.imread(p)
+    return None if img is None else (img.shape[1], img.shape[0])
+
+
+@dataclass(eq=False)
+class SizeRef:
+    """サイズ判定の基準になった画像（どのステップのどの欄か）。"""
+
+    size: tuple                 # (w, h)
+    index: int                  # ステップ（0始まり）
+    field: str                  # "input_image" | "heatmap"
+    name: str                   # ファイル名
+
+
+def sequence_reference_size(sequence: Sequence, skip: Optional[tuple] = None) -> Optional[SizeRef]:
+    """シーケンス内の画像サイズの基準（仕様: 2026-10-19 担当者決定）。
+
+    ステップ順に「入力画像 → ヒートマップ」と見ていき、最初に読めた画像のサイズを基準にする
+    （通常はシーケンスの最初に選んだ画像）。動画か静止画かは問わない。ヒートマップは
+    実際に使う場合（Aging ステップ・ファイルモード）だけ数える。
+    ``skip=(index, field)`` の欄は除く（選び直そうとしている欄そのもの）。
+    基準になる画像がまだ無ければ ``None``（何を選んでもよい）。
+    """
+    for i, r in enumerate(sequence.recipes):
+        slots = [("input_image", r.input_image)]
+        if not r.is_eval and r.heatmap_mode == "file":
+            slots.append(("heatmap", r.heatmap))
+        for field_key, name in slots:
+            if not name or (skip is not None and (i, field_key) == tuple(skip)):
+                continue
+            size = media_size(Path(sequence.folders[field_key]) / name)
+            if size is not None:
+                return SizeRef(size=size, index=i, field=field_key, name=name)
+    return None
+
+
+# --------------------------------------------------------------------------- #
 #  1レシピの実行
 # --------------------------------------------------------------------------- #
+# 静止画 Aging の仮想 fps（担当者決定 2026-10-19）。1フレーム = 1秒 × ACCEL_RATIO の Aging。
+# Aging 時間の刻みは ACCEL_RATIO で調整する。
+STILL_AGING_FPS = 1.0
+# 評価ステップの温度（評価は温度設定なし。2026-10-19 決定）。モデル変更で温度依存が
+# ストレス累積側に移るまでの暫定で、現行モデルでも A=0 なら結果に影響しない。
+EVAL_TEMP_C = 25.0
+
+
 def run_recipe(
     *,
     recipe: Recipe,
@@ -308,52 +368,73 @@ def run_recipe(
     progress_cb: Optional[Callable] = None,   # (done:int, total:int, preview_bgr|None)
     log=None,
 ) -> RunResult:
+    """1ステップを実行する。処理はステップ種別（``recipe.step_type``）で決まる:
+
+    - Aging × 動画   : 1フレーム = (1/fps)×ACCEL_RATIO。AGING_TIME で打切り／周回（従来どおり）
+    - Aging × 静止画 : 同じ絵を fps=1 で繰り返す（1フレーム = 1秒×ACCEL_RATIO）。
+                       AGING_TIME で回数が決まる（0 なら1フレーム）。出力は最後の劣化画像（PNG）
+    - 評価 × 静止画  : ストレスを貯めずに劣化後の画像を1枚作る
+    - 評価 × 動画    : ストレスを貯めずに全フレームを1周回（劣化後の見え方の動画を作る）
+    評価ステップは温度設定なし（``EVAL_TEMP_C`` 固定・ヒートマップ不使用）。
+    """
     control = control or RunControl()
-    fixed_temp = recipe.heatmap_mode == "fixed"
+    eval_step = recipe.is_eval
+    fixed_temp = eval_step or recipe.heatmap_mode == "fixed"
+    temp_c = EVAL_TEMP_C if eval_step else recipe.fixed_temp_c
     in_dir = Path(folders["input_image"])
     ht_dir = Path(folders["heatmap"])
     path_img = in_dir / recipe.input_image
     path_ht = None if fixed_temp else ht_dir / recipe.heatmap
-    if not path_img.exists():
+    if not recipe.input_image or not path_img.exists():
         raise EngineError(f"入力画像が見つかりません: {path_img}")
-    if path_ht is not None and not path_ht.exists():
+    if path_ht is not None and (not recipe.heatmap or not path_ht.exists()):
         raise EngineError(f"ヒートマップが見つかりません: {path_ht}")
 
-    # 固定温度モード（ヒートマップなし。仕様: パネル全面を固定温度で計算）：
-    # source/main.py は無改変のまま、ht の中身に依らず一定温度になるよう
-    # TMP_L=TMP_H=固定温度 として渡す（(ht/255)*(TMP_H-TMP_L)+TMP_L が定数になる）
+    # 固定温度（ヒートマップなし、または評価ステップ）：source/main.py は無改変のまま、
+    # ht の中身に依らず一定温度になるよう TMP_L=TMP_H=固定温度 として渡す
+    # （(ht/255)*(TMP_H-TMP_L)+TMP_L が定数になる）
     sim = dict(recipe.sim_param)
     if fixed_temp:
-        sim["TMP_L"] = sim["TMP_H"] = float(recipe.fixed_temp_c)
+        sim["TMP_L"] = sim["TMP_H"] = float(temp_c)
     accel = float(sim["ACCEL_RATIO"])
     tmp_l_k = float(sim["TMP_L"]) + 273.0
     tmp_h_k = float(sim["TMP_H"]) + 273.0
     is_movie = path_img.suffix.lower() == ".mp4"
     if log:
         log.io("in", path_img.name)
-        if fixed_temp:
-            log.action(f"固定温度 {recipe.fixed_temp_c:g}℃ でヒートマップ代用")
+        if eval_step:
+            log.action(f"評価ステップ（ストレスを貯めない・温度 {temp_c:g}℃ 固定）")
+        elif fixed_temp:
+            log.action(f"固定温度 {temp_c:g}℃ でヒートマップ代用")
         else:
             log.io("in", path_ht.name)
 
     # ---- 入力サイズ確定 ----
+    cap = cap_ht = None
+    img0 = ht0 = None
     if is_movie:
         cap = cv2.VideoCapture(str(path_img))
-        cap_ht = None if fixed_temp else cv2.VideoCapture(str(path_ht))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         frames_total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        dt = 1.0 / fps
     else:
         img0 = imio.imread(path_img)
-        ht0 = None if fixed_temp else imio.imread(path_ht)
-        if img0 is None or (not fixed_temp and ht0 is None):
-            raise EngineError(
-                f"画像を読めません: {path_img if img0 is None else path_ht}")
+        if img0 is None:
+            raise EngineError(f"画像を読めません: {path_img}")
         height, width = img0.shape[:2]
-        fps, frames_total, dt = 0.0, 1, 0.0
+        fps, frames_total = STILL_AGING_FPS, 1
+    if path_ht is not None:
+        if path_ht.suffix.lower() == ".mp4":
+            cap_ht = cv2.VideoCapture(str(path_ht))
+        else:
+            ht0 = imio.imread(path_ht)
+            if ht0 is None:
+                raise EngineError(f"画像を読めません: {path_ht}")
     ht_dummy = np.zeros((height, width, 3), dtype=np.uint8) if fixed_temp else None
+    # 評価ステップはストレスを貯めない（dt=0）。Aging は 1フレーム = 1/fps 秒
+    dt = 0.0 if eval_step else 1.0 / fps
+    dt_accel = dt * accel
 
     # ---- 初期ストレス ----
     if initial_state is None:
@@ -368,34 +449,46 @@ def run_recipe(
     stopped = False
     img_last = None
     tmp_video: Optional[Path] = None
-    start = max(resume_from, 0) if is_movie else 0
-    dt_accel = 0.0
+    looped = is_movie or not eval_step      # フレームループで処理する（静止画の評価だけは1回）
+    start = max(resume_from, 0) if looped else 0
+    frames_target = frames_total
 
     def _temp(ht):
         return (ht[:, :, 0] / 255.0) * (tmp_h_k - tmp_l_k) + tmp_l_k
 
-    if is_movie:
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        _fd, _tmp = tempfile.mkstemp(suffix=".mp4")            # ASCII パス
-        os.close(_fd)                                          # mkstemp のハンドルを閉じる（Windowsでロック解除）
-        tmp_video = Path(_tmp)
-        writer = cv2.VideoWriter(str(tmp_video), fourcc, fps, (width, height))
+    def _next_ht(use_target):
+        if fixed_temp:
+            return ht_dummy
+        if cap_ht is None:
+            return ht0
+        ok2, ht = cap_ht.read()
+        if not ok2 and use_target:
+            cap_ht.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ok2, ht = cap_ht.read()
+        return ht if ok2 else None
+
+    if looped:
+        writer = None
+        if is_movie:
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            _fd, _tmp = tempfile.mkstemp(suffix=".mp4")            # ASCII パス
+            os.close(_fd)                                          # mkstemp のハンドルを閉じる（Windowsでロック解除）
+            tmp_video = Path(_tmp)
+            writer = cv2.VideoWriter(str(tmp_video), fourcc, fps, (width, height))
 
         # ---- AGING_TIME（目標 Aging 時間・秒。仕様: IP設計者レビュー2 (3)）----
-        # 0（既定）＝無制限＝従来どおり動画を1周回のみ処理。正の値なら、
+        # 0（既定）＝無制限＝動画は1周回のみ（静止画は1フレーム）。正の値なら、
         # 1周回の実時間（frames_total×dt×ACCEL_RATIO）が目標を超えれば途中で打ち切り、
-        # 満たなければ動画の先頭へ戻って周回しながら目標に達するまで継続する。
-        dt_accel = dt * accel
-        target_seconds = float(sim.get("AGING_TIME", 0.0))
+        # 満たなければ先頭へ戻って周回しながら目標に達するまで継続する。
+        # 評価ステップは Aging しないので AGING_TIME は使わない（動画を1周回）。
+        target_seconds = 0.0 if eval_step else float(sim.get("AGING_TIME", 0.0))
         use_target = dt_accel > 0 and target_seconds > 0
         if use_target:
             add_frames = aging_time_add_frames(dt_accel, target_seconds - aging_seconds)
             frames_target = start + add_frames
-        else:
-            frames_target = frames_total
         end = frames_target if max_frames is None else min(frames_target, start + max_frames)
 
-        if start > 0:
+        if start > 0 and is_movie:
             # 連続動画にするため、継続元の部分動画から先頭 start フレームを取り込む
             copied = 0
             if resume_video is not None and Path(resume_video).exists():
@@ -417,6 +510,8 @@ def run_recipe(
             cap.set(cv2.CAP_PROP_POS_FRAMES, native_pos)
             if cap_ht is not None:
                 cap_ht.set(cv2.CAP_PROP_POS_FRAMES, native_pos)
+        elif start > 0 and log:
+            log.action(f"再開: フレーム {start} から（静止画 Aging）")
         try:
             frame_idx = start
             while frame_idx < end:
@@ -425,25 +520,23 @@ def run_recipe(
                 if control.stopped:
                     stopped = True
                     break
-                ok1, img = cap.read()
-                if not ok1 and use_target:
-                    # 動画終端 → AGING_TIME 未達なら先頭へ戻って周回を続ける
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                if is_movie:
                     ok1, img = cap.read()
-                if not ok1:
-                    break
-                if fixed_temp:
-                    ht = ht_dummy
-                else:
-                    ok2, ht = cap_ht.read()
-                    if not ok2 and use_target:
-                        cap_ht.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        ok2, ht = cap_ht.read()
-                    if not ok2:
+                    if not ok1 and use_target:
+                        # 動画終端 → AGING_TIME 未達なら先頭へ戻って周回を続ける
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ok1, img = cap.read()
+                    if not ok1:
                         break
+                else:
+                    img = img0.copy()            # コアが img をインプレースで書き換えるため毎回複製
+                ht = _next_ht(use_target)
+                if ht is None:
+                    break
                 model.update(dt, img, ht, state, recipe.model_param, sim)
                 last_temp = _temp(ht)
-                writer.write(img)
+                if writer is not None:
+                    writer.write(img)
                 aging_seconds += dt_accel
                 frames_done += 1
                 frame_idx += 1
@@ -453,25 +546,28 @@ def run_recipe(
                 if use_target and aging_seconds >= target_seconds:
                     break        # 目標時間に到達（周回途中でも打ち切る）
         finally:
-            cap.release()
+            if cap is not None:
+                cap.release()
             if cap_ht is not None:
                 cap_ht.release()
-            writer.release()
+            if writer is not None:
+                writer.release()
     else:
+        # 静止画の評価：ストレスを貯めずに劣化後の画像を1枚作る（評価は固定温度なので ht はダミー）
         if control.stopped:
             stopped = True
         else:
-            ht0_eff = ht_dummy if fixed_temp else ht0
-            model.update(dt, img0, ht0_eff, state, recipe.model_param, sim)
+            ht0_eff = _next_ht(False)
+            model.update(0.0, img0, ht0_eff, state, recipe.model_param, sim)
             last_temp = _temp(ht0_eff)
             frames_done = 1
             img_last = img0
             if progress_cb:
                 progress_cb(1, 1, img0)
 
-    # frames_total の意味: 静止画は常に1。動画は AGING_TIME 由来の目標フレーム数
+    # frames_total の意味: 静止画の評価は常に1。それ以外は AGING_TIME 由来の目標フレーム数
     # （進捗バー・停止再開ダイアログ用の目安値。無制限なら入力動画の実フレーム数と同じ）
-    reported_frames_total = frames_target if is_movie else frames_total
+    reported_frames_total = frames_target if looped else 1
     res = RunResult(
         recipe_name=recipe.recipe_name, nn=nn, is_movie=is_movie,
         size=(width, height), frames_total=reported_frames_total, frames_done=frames_done,

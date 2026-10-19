@@ -37,13 +37,22 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 
 ## 現在の状況（2026-10-19）
 
-- **2026-10-19 リポジトリを `C:\ユーザー\horibe\DBI_BIP` → `C:\Users\h84431495\DBI_BIP` に移動し、新セッションで再開**。
-  移動後の作業（`.venv` 再作成・selftest 確認など）と 10/15〜10/16 の作業内容は `docs/progress/261019_引き継ぎ資料.md`。
-  10/16 時点で判明・未対応の要点：
-  - **静止画ステップは Aging しない**（`dt=0`。AGING_TIME・ACCEL_RATIO は効かないが③タブでは入力できてしまう）。種別は拡張子で自動判定
-  - **評価ステップの温度不整合**：劣化画像（コア）は `TMP_L` 固定、`deg` CSV（bisim）はヒートマップ温度で計算。`A≠0` のときだけ食い違う
-  - **BC設定（bcsetting.csv）は bisim に未配線**（`bcset_dict={}`）。新BC仕様は「新しい入力種別の追加」になる
-  - 理論どおりかを確かめるテスト（黒背景3色円の動画で Aging → 白ラスタで評価、出力CSVと理論値を比較）を合意済み・着手は指示待ち
+- **2026-10-19 リポジトリを `C:\ユーザー\horibe\DBI_BIP` → `C:\Users\h84431495\LLM\DBI_BIP` に移動し、新セッションで再開**
+  （`LLM\` は担当者の判断で追加）。移動後の作業と 10/15〜10/16 の作業内容は `docs/progress/261019_引き継ぎ資料.md`。
+  `.venv` は旧パスのまま（`python.exe` は動くが `activate`・`pip.exe` は旧パス参照）。作り直しは未実施
+- **2026-10-19 理論確認テスト（3色円）作成・確認済み**：`tools/make_rgbcircle_test.py`（入力・シーケンス生成）／
+  `tools/rgbcircle_theory.py`（理論値計算・`--compare` で bisim 出力と比較）／`eval_test/rgbcircle/`（README に手順）。
+  パネル横240×縦512、ACCEL_RATIO=3600（動画1周回=1h）、累積 0.5h〜50h の7段。エンジン経路で**全14ステップ理論値と完全一致**
+- **2026-10-19 議事録 `docs/review/261015_progress-mtg_BI-sim_minutes.txt` の指摘1〜3に対応（実装済み・selftest 85/85）**：
+  (1) **ステップ種別を手動選択**（`Recipe.step_type` = `aging`/`eval`。旧 JSON は拡張子から決定）。
+  静止画 Aging は **fps=1**（1フレーム=1秒×ACCEL_RATIO）、PQ評価は動画・静止画ともストレスを貯めない（`dt=0`）。
+  PQ評価は**温度設定なし**（内部 25℃固定＝`engine.EVAL_TEMP_C`。モデル変更までの暫定）で、③ではヒートマップ・Sim条件欄を隠す
+  → 10/16 に見つけた「静止画は Aging しない」「評価ステップの温度不整合」はこれで解消。
+  (2) **画像サイズ検査**：③で入力画像・ヒートマップを選んだ時点で、シーケンス内で最初に見つかる画像のサイズと比べ、違えば警告して選択させない（`engine.sequence_reference_size`）。
+  (3) ③プレビューの文言「前回の Aging 結果」→「**前ステップの画像**」。
+  指摘4（累積時間マップの 0〜255 スケーリング）は意味の確認待ち（松井氏）。
+  ついでに修正：④のライブ Aging 時間表示が1フレームを `ACCEL_RATIO÷総フレーム数` で計算していた → `ACCEL_RATIO÷fps` に
+- 未対応：**BC設定（bcsetting.csv）は bisim に未配線**（`bcset_dict={}`）。新BC仕様は「新しい入力種別の追加」になる
 - 以下は 2026-10-15 時点の記述
 
 - UX検証プロトタイプ（`prototype/`）は完成、**2026-09-03 に IP設計者レビュー実施済み**。
@@ -106,13 +115,13 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | モジュール | 役割 | フェーズ |
 |---|---|---|
 | `paths.py` | SOURCE_DIR / APP_DIR / LOG_DIR / 既定フォルダ6種 | A |
-| `model.py` | `Recipe`（`heatmap_mode`/`fixed_temp_c` でヒートマップなし＝固定温度に対応） / `Sequence`（`stops` に停止状態を内包） / `StopState` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） | A/D |
+| `model.py` | `Recipe`（`step_type`＝`aging`/`eval` を手動選択・未指定/旧JSONは拡張子から。`heatmap_mode`/`fixed_temp_c` でヒートマップなし＝固定温度に対応） / `Sequence`（`stops` に停止状態を内包） / `StopState` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） | A/D |
 | `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name`（`_`→`-`）、`stop_dir`（`_stops/` チェックポイントのフォルダ名） | A/D |
 | `paramio.py` | model/sim パラメータ CSV I/O（CLI版 `degparam_mm.csv` / `simconf.csv` と互換） | B |
 | `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） | B |
-| `engine.py` | `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に。`AGING_TIME`>0 で目標時間駆動＝超過打切り／不足なら動画を周回連結、`resume_from` が周回をまたぐ場合は `% frames_total` でシーク、見積りは `aging_time_add_frames()` に共通化）/ `run_sequence` / 出力の確定・破棄 / `format_aging`（時:分:秒表示）/ `movie_meta`（fps・総フレーム数） | B/D |
+| `engine.py` | `run_recipe` は種別で分岐（Aging×動画／Aging×静止画＝`STILL_AGING_FPS`=1／PQ評価＝`dt=0`・`EVAL_TEMP_C`=25℃固定）/ `media_size`・`sequence_reference_size`（③の画像サイズ検査）/ `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に。`AGING_TIME`>0 で目標時間駆動＝超過打切り／不足なら動画を周回連結、`resume_from` が周回をまたぐ場合は `% frames_total` でシーク、見積りは `aging_time_add_frames()` に共通化）/ `run_sequence` / 出力の確定・破棄 / `format_aging`（時:分:秒表示）/ `movie_meta`（fps・総フレーム数） | B/D |
 | `logio.py` | `Logger`（`_log_BISim/` セッションローテーション＝起動ごとに新ファイル。容量超過時は同一セッション内でも新パートへ、総容量上限、画面表示 listener） | B |
-| `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ。`run.py`④に選択ステップの動画情報＋AGING_TIME判定ラベル、`results.py`⑤の累積時間マップはR/G/B各色独自の最大値で正規化） | C/D |
+| `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ。`step_config.py`③にステップ種別の選択＋PQ評価時はヒートマップ・Sim条件欄を隠す＋ファイル選択時の画像サイズ検査、`run.py`④に選択ステップの動画情報＋AGING_TIME判定ラベル、`results.py`⑤の累積時間マップはR/G/B各色独自の最大値で正規化） | C/D |
 | `installer/` | `bisim.spec`（PyInstaller 6.x・onedir）/ `bisim_launcher.py` / `build_exe.ps1` / `README.md`。手順は `docs/EXEビルド手順書.md` | E |
 
 - 実行：`python -m bisim`（GUI 起動）／ `python -m bisim --info`（データ層＋エンジン確認）／ **テスト：`python -m bisim.selftest`（pytest 不要、テストモジュールごとに別プロセス。`test_ui` は `QT_QPA_PLATFORM=offscreen` 推奨。個別は `python -m bisim.selftest test_engine`）**
@@ -129,7 +138,7 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 
 - 実行環境: リポジトリ直下に `.venv`（`bisim/requirements.txt` = prototype と同内容 ＋ pytest）。
   社給PCの pip は社内ミラー固定のため、インストールは社内ネットワーク接続時に行う。
-- Unicode パス注意（日本語を含むパスの場合。旧パス `C:\ユーザー\…` で発生。2026-10-19 以降の `C:\Users\h84431495\DBI_BIP` では起きない見込み・要確認）: `cv2.imread/imwrite` は日本語パスで PNG を扱えない。
+- Unicode パス注意（日本語を含むパスの場合。旧パス `C:\ユーザー\…` で発生。2026-10-19 以降の `C:\Users\h84431495\LLM\DBI_BIP` では起きない見込み・要確認）: `cv2.imread/imwrite` は日本語パスで PNG を扱えない。
   `prototype/imio.py` ／ `bisim/imio.py` で回避。動画I/Oは cv2 直で可（`bisim` は VideoWriter を ASCII 一時ファイル経由）。`source/main.py` の静止画ステップはこのパスでは失敗する。
 
 ## 詳細ドキュメント

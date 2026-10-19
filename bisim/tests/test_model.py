@@ -38,11 +38,39 @@ def test_recipe_from_dict_lenient_heatmap_mode():
     assert r.fixed_temp_c == 25.0
 
 
-def test_recipe_kind():
+def test_recipe_kind_defaults_from_extension():
+    """種別を指定しないと拡張子から決める（旧仕様の自動判定と同じ）。"""
     assert Recipe(input_image="a.mp4").kind == "aging"
-    assert Recipe(input_image="a.png").kind == "pq"
-    assert Recipe(input_image="").kind == "unknown"
+    assert Recipe(input_image="a.png").kind == "eval"
+    assert Recipe(input_image="").kind == "aging"
     assert Recipe(input_image="a.MP4").kind == "aging"
+    assert Recipe(input_image="a.PNG").is_eval
+
+
+def test_recipe_step_type_is_manual():
+    """種別は手動で決められ、入力ファイルの種類とは独立（2026-10-19 決定）。"""
+    still_aging = Recipe(input_image="logo.png", step_type="aging")
+    movie_eval = Recipe(input_image="clip.mp4", step_type="eval")
+    assert still_aging.kind == "aging" and not still_aging.is_eval
+    assert movie_eval.kind == "eval" and movie_eval.is_eval
+    # 保存・読込で種別が保たれる（拡張子に引きずられない）
+    assert Recipe.from_dict(still_aging.to_dict()).step_type == "aging"
+    assert Recipe.from_dict(movie_eval.to_dict()).step_type == "eval"
+    assert still_aging.to_dict()["step_type"] == "aging"
+    # 後から入力ファイルを差し替えても種別は変わらない
+    still_aging.input_image = "other.png"
+    assert still_aging.step_type == "aging"
+    bad = Recipe(input_image="a.mp4")
+    bad.step_type = "bogus"
+    assert any("step_type" in p for p in bad.validate())
+
+
+def test_recipe_from_old_json_without_step_type():
+    """種別の欄が無い旧シーケンス JSON は拡張子から決める（従来と同じ動作）。"""
+    assert Recipe.from_dict({"recipe_name": "a", "input_image": "x.mp4"}).step_type == "aging"
+    assert Recipe.from_dict({"recipe_name": "p", "input_image": "x.png"}).step_type == "eval"
+    assert Recipe.from_dict({"recipe_name": "p", "input_image": "x.png",
+                             "step_type": "bogus"}).step_type == "eval"
 
 
 def test_recipe_roundtrip():

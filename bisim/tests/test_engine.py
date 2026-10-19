@@ -75,14 +75,144 @@ def test_run_recipe_still():
 
 
 def test_run_recipe_still_fixed_temp():
-    """ヒートマップなし（固定温度）: IP設計者レビュー2 (2)。"""
+    """ヒートマップなし（固定温度）: IP設計者レビュー2 (2)。静止画 Aging で確認。"""
     with tempfile.TemporaryDirectory() as d:
-        r = Recipe(recipe_name="pq01", input_image=_STILL, heatmap="",
+        r = Recipe(recipe_name="age01", input_image=_STILL, heatmap="", step_type="aging",
                   heatmap_mode="fixed", fixed_temp_c=40.0)
         res = engine.run_recipe(recipe=r, folders=_folders(d), sequence_name="T",
                                 nn="01", model=_model())
         assert res.frames_done == 1 and not res.stopped
         assert np.allclose(res.temp_kelvin, 40.0 + 273.0)   # パネル全面が固定温度
+
+
+# --------------------------------------------------------------------------- #
+#  ステップ種別（Aging / PQ評価 を手動選択。2026-10-19 決定）
+# --------------------------------------------------------------------------- #
+def test_still_image_aging_accumulates_at_fps1():
+    """静止画 Aging：同じ絵を fps=1 で繰り返す（1フレーム = 1秒×ACCEL_RATIO）。"""
+    with tempfile.TemporaryDirectory() as d:
+        r = Recipe(recipe_name="age01", input_image=_STILL, step_type="aging",
+                  heatmap_mode="fixed", fixed_temp_c=25.0)
+        r.sim_param["ACCEL_RATIO"] = 100.0
+        r.sim_param["AGING_TIME"] = 450.0          # 4.5フレーム分 → 5フレーム
+        res = engine.run_recipe(recipe=r, folders=_folders(d), sequence_name="T",
+                                nn="01", model=_model())
+        assert engine.STILL_AGING_FPS == 1.0
+        assert res.dt_accel == 100.0 and res.frames_done == 5 and res.frames_total == 5
+        assert res.aging_seconds == 500.0 and not res.is_movie
+        assert float(np.nanmax(res.state.r)) > 0.0   # ストレスが貯まっている
+        out = engine.write_recipe_outputs(result=res, folders=_folders(d), sequence_name="T",
+                                          model=_model(), model_param=r.model_param)
+        assert Path(out["image"]).name == "T_01_age01_image.png"   # 出力は最後の劣化画像
+
+        # 1フレームずつの手計算と一致する（劣化した後の明るさでストレスを貯める）
+        img = cv2.imdecode(np.fromfile(str(_COMMON / _STILL), np.uint8), cv2.IMREAD_COLOR)
+        mm = {k: v for k, v in r.model_param.items()}
+        n, k0, q, b0 = mm["N"][0], mm["K0"][0], mm["Q"][0], mm["B0"][0]
+        lum0 = (img[:, :, 2] / 255) ** 2.2
+        s = np.zeros(lum0.shape)
+        for _ in range(5):
+            lum = lum0 * np.exp(-1.0 * s ** b0)
+            s += 1.0 * 100.0 * lum ** n / (k0 * np.exp(q / 298.0))
+        assert np.allclose(res.state.r, s, rtol=1e-12, atol=0)
+
+
+def test_still_image_aging_zero_aging_time_is_one_frame():
+    with tempfile.TemporaryDirectory() as d:
+        r = Recipe(recipe_name="age01", input_image=_STILL, step_type="aging",
+                  heatmap_mode="fixed")
+        r.sim_param["ACCEL_RATIO"] = 50.0
+        res = engine.run_recipe(recipe=r, folders=_folders(d), sequence_name="T",
+                                nn="01", model=_model())
+        assert res.frames_done == 1 and res.aging_seconds == 50.0
+
+
+def test_eval_movie_does_not_accumulate():
+    """PQ評価 × 動画：ストレスを貯めずに全フレームを処理し、劣化後の見え方の動画を作る。"""
+    with tempfile.TemporaryDirectory() as d:
+        init = engine.StressState.zeros(270, 480)
+        init.r[:] = 0.5
+        before = init.r.copy()
+        r = Recipe(recipe_name="pqmov", input_image=_MOVIE, heatmap=_MOVIE_HT,
+                  step_type="eval", init_stress="prev")
+        r.sim_param["AGING_TIME"] = 99999.0        # 評価では使わない
+        res = engine.run_recipe(recipe=r, folders=_folders(d), sequence_name="T", nn="02",
+                                model=_model(), initial_state=init, max_frames=4)
+        assert res.is_movie and res.frames_done == 4
+        assert res.aging_seconds == 0.0 and res.dt_accel == 0.0
+        assert np.array_equal(res.state.r, before)     # 累積ストレスは変わらない
+        out = engine.write_recipe_outputs(result=res, folders=_folders(d), sequence_name="T",
+                                          model=_model(), model_param=r.model_param)
+        assert _movie_count(out["movie"]) == 4
+
+
+def test_eval_has_no_temperature_setting():
+    """PQ評価は温度設定なし：ヒートマップ・固定温度の設定に関係なく EVAL_TEMP_C で計算する。"""
+    with tempfile.TemporaryDirectory() as d:
+        r = Recipe(recipe_name="pq01", input_image=_STILL, heatmap="no_such_heatmap.png",
+                  step_type="eval", heatmap_mode="file")
+        res = engine.run_recipe(recipe=r, folders=_folders(d), sequence_name="T",
+                                nn="01", model=_model())     # ヒートマップが無くても動く
+        assert np.allclose(res.temp_kelvin, engine.EVAL_TEMP_C + 273.0)
+        r2 = Recipe(recipe_name="pq02", input_image=_STILL, step_type="eval",
+                   heatmap_mode="fixed", fixed_temp_c=80.0)
+        res2 = engine.run_recipe(recipe=r2, folders=_folders(d), sequence_name="T",
+                                 nn="02", model=_model())
+        assert np.allclose(res2.temp_kelvin, engine.EVAL_TEMP_C + 273.0)
+
+
+def test_still_image_aging_stop_and_resume_matches_uninterrupted():
+    """静止画 Aging も停止位置から再開でき、通しで実行した結果と一致する。"""
+    with tempfile.TemporaryDirectory() as d:
+        f = _folders(d)
+        r = Recipe(recipe_name="age01", input_image=_STILL, step_type="aging",
+                  heatmap_mode="fixed")
+        r.sim_param["ACCEL_RATIO"] = 100.0
+        r.sim_param["AGING_TIME"] = 600.0          # 6フレーム
+        full = engine.run_recipe(recipe=r, folders=f, sequence_name="S", nn="01", model=_model())
+
+        ctl = engine.RunControl()
+
+        def cb(fd, ft, prev):
+            if fd >= 2:
+                ctl.request_stop()
+
+        res1 = engine.run_recipe(recipe=r, folders=f, sequence_name="S", nn="01",
+                                 model=_model(), control=ctl, progress_cb=cb)
+        assert res1.stopped and res1.frames_done == 2
+        st, out1 = engine.write_stop_checkpoint(result=res1, folders=f, sequence_name="S",
+                                                model=_model(), model_param=r.model_param,
+                                                timestamp="261019-1200")
+        assert not st.is_movie and Path(out1["image"]).exists()
+        plan, err = engine.build_resume_plan(f, st)
+        assert err is None and plan.video is None and plan.frames_done == 2
+        res2 = engine.run_recipe(recipe=r, folders=f, sequence_name="S", nn="01",
+                                 model=_model(), initial_state=plan.state,
+                                 resume_from=plan.frames_done,
+                                 resume_aging_seconds=plan.aging_seconds)
+        assert not res2.stopped and res2.frames_done == 4 and res2.frames_absolute == 6
+        assert res2.aging_seconds == full.aging_seconds == 600.0
+        assert np.allclose(res2.state.r, full.state.r, rtol=1e-12, atol=0)
+
+
+def test_media_size_and_sequence_reference_size():
+    """画像サイズの基準：シーケンス内で最初に見つかる画像（動画・静止画は問わない）。"""
+    assert engine.media_size(_COMMON / _MOVIE) == (480, 270)
+    assert engine.media_size(_COMMON / _STILL) == (480, 270)
+    assert engine.media_size(_COMMON / "no_such.png") is None
+    seq = Sequence(sequence_name="S", folders=_folders("."))
+    assert engine.sequence_reference_size(seq) is None              # 画像がまだ無い
+    seq.recipes = [Recipe(recipe_name="a", input_image="", heatmap=_MOVIE_HT),
+                   Recipe(recipe_name="b", input_image=_STILL, step_type="eval")]
+    ref = engine.sequence_reference_size(seq)
+    assert ref.size == (480, 270) and (ref.index, ref.field, ref.name) == (0, "heatmap", _MOVIE_HT)
+    # 選び直している欄そのものは基準から外す
+    ref2 = engine.sequence_reference_size(seq, skip=(0, "heatmap"))
+    assert (ref2.index, ref2.field) == (1, "input_image")
+    assert engine.sequence_reference_size(seq, skip=(1, "input_image")).index == 0
+    # 固定温度モード・評価ステップのヒートマップは使わないので基準にしない
+    seq.recipes[0].heatmap_mode = "fixed"
+    assert engine.sequence_reference_size(seq).index == 1
 
 
 def test_run_recipe_movie_fixed_temp():

@@ -128,7 +128,7 @@ STR: dict[str, dict[str, str]] = {
     "steps.copy_suffix": {"ja": "-copy", "en": "-copy"},
 
     "kind.aging": {"ja": "Aging", "en": "Aging"},
-    "kind.pq": {"ja": "PQ評価", "en": "PQ Eval"},
+    "kind.eval": {"ja": "PQ評価", "en": "PQ Eval"},
     "kind.unknown": {"ja": "―", "en": "—"},
 
     "init.none": {"ja": "なし", "en": "None"},
@@ -150,7 +150,31 @@ STR: dict[str, dict[str, str]] = {
     "cfg.heatmap.fixed_cb": {"ja": "ヒートマップなし（パネル全面を固定温度）",
                              "en": "No heat map (fixed temperature, whole panel)"},
     "cfg.heatmap.fixed_unit": {"ja": "℃", "en": "degC"},
-    "cfg.kind": {"ja": "種別（自動判定）", "en": "Type (auto)"},
+    "cfg.kind": {"ja": "ステップ種別", "en": "Step type"},
+    "cfg.kind.note_aging": {
+        "ja": "Aging：ストレスを貯めます。入力は動画・静止画のどちらでも可。"
+              "静止画は同じ絵を fps=1 で繰り返します（1フレーム＝1秒×ACCEL_RATIO）。",
+        "en": "Aging: accumulates stress. Input may be a movie or a still image. "
+              "A still image is repeated at fps=1 (1 frame = 1 s x ACCEL_RATIO)."},
+    "cfg.kind.note_eval": {
+        "ja": "PQ評価：ストレスを貯めず、劣化後の見え方の画像・動画だけを作ります"
+              "（入力は動画・静止画のどちらでも可）。温度設定なし（内部は {v:g}℃ 固定。"
+              "モデル変更までの暫定）。Aging 条件（Sim条件）は使いません。",
+        "en": "PQ eval: does not accumulate stress; only renders how the degraded panel looks "
+              "(movie or still image). No temperature setting (fixed {v:g}degC internally, "
+              "provisional until the model update). Aging (Sim) conditions are not used."},
+    "cfg.size.title": {"ja": "画像サイズが違います", "en": "Image size mismatch"},
+    "cfg.size.msg": {
+        "ja": "選択した {sel}（{w}×{h}）は、シーケンスの基準サイズ（{rw}×{rh}）と違うため選択できません。\n\n"
+              "基準：ステップ #{n}「{recipe}」の{field}（{name}）\n\n"
+              "シーケンス内の画像（入力画像・ヒートマップ）は、動画・静止画を問わずすべて同じサイズにしてください。",
+        "en": "The selected {sel} ({w}x{h}) differs from the sequence's reference size ({rw}x{rh}) "
+              "and cannot be selected.\n\nReference: {field} of step #{n} \"{recipe}\" ({name})\n\n"
+              "All images in a sequence (input images and heat maps), movies or stills, must have the same size."},
+    "cfg.size.unreadable": {"ja": "画像・動画を読めませんでした: {name}",
+                            "en": "Could not read the image/movie: {name}"},
+    "cfg.pv.heatmap_eval": {"ja": "PQ評価ステップ：温度設定なし",
+                            "en": "PQ eval step: no temperature setting"},
     "cfg.grp.init": {"ja": "初期ストレス（Aging 再開）", "en": "Initial stress (resume aging)"},
     "cfg.grp.model": {"ja": "モデルパラメータ（Master Model）", "en": "Model parameters (Master Model)"},
     "cfg.model_csv": {"ja": "参照CSV: {name}", "en": "CSV: {name}"},
@@ -181,8 +205,8 @@ STR: dict[str, dict[str, str]] = {
     "cfg.pv.heatmap": {"ja": "ヒートマップ画像", "en": "Heat map image"},
     "cfg.pv.heatmap_fixed": {"ja": "固定温度 {v:g}℃（ヒートマップなし）",
                              "en": "Fixed temperature {v:g}degC (no heat map)"},
-    "cfg.pv.prev": {"ja": "前回の Aging 結果", "en": "Previous aging result"},
-    "cfg.pv.prev_named": {"ja": "前回の Aging 結果 ({name})", "en": "Previous aging result ({name})"},
+    "cfg.pv.prev": {"ja": "前ステップの画像", "en": "Previous step image"},
+    "cfg.pv.prev_named": {"ja": "前ステップの画像（{name}）", "en": "Previous step image ({name})"},
     "cfg.pv.none": {"ja": "（ステップ未選択）", "en": "(no step selected)"},
     "cfg.pv.first": {"ja": "（初回 / 継承なし）", "en": "(first / no inheritance)"},
     "cfg.pv.prev_notrun": {"ja": "前ステップ #{n} は未実行です", "en": "Previous step #{n} not run yet"},
@@ -213,8 +237,14 @@ STR: dict[str, dict[str, str]] = {
                                         "en": "truncates partway through 1 pass (~{n} frames)"},
     "run.movie_info.verdict_loop": {"ja": "周回連結（約{n}周回ぶん、約{frames}フレーム）",
                                     "en": "loops (~{n} passes, ~{frames} frames)"},
-    "run.movie_info_still": {"ja": "静止画（PQ評価）：Aging時間への寄与なし",
-                             "en": "Still image (PQ eval): no aging-time contribution"},
+    "run.movie_info_eval": {"ja": "PQ評価ステップ：Aging しない（累積ストレスは変わりません）",
+                            "en": "PQ eval step: no aging (accumulated stress is unchanged)"},
+    "run.movie_info_still_aging": {
+        "ja": "静止画Aging: 同じ絵を fps=1 で繰り返し（1フレーム = 1秒 × ACCEL_RATIO {accel} = {accel_time}）\n"
+              "設定中の AGING_TIME = {target} → 約{frames}フレーム",
+        "en": "Still-image aging: repeats the image at fps=1 (1 frame = 1 s x ACCEL_RATIO {accel} = {accel_time})\n"
+              "Current AGING_TIME = {target} -> ~{frames} frames"},
+    "run.movie_info_still_aging.zero": {"ja": "0（1フレームのみ）", "en": "0 (single frame)"},
     "run.movie_info_none": {"ja": "（入力ファイル未設定）", "en": "(input file not set)"},
     "run.btn.pause": {"ja": "❚❚ 中断", "en": "❚❚ Pause"},
     "run.btn.resume": {"ja": "▶ 再開", "en": "▶ Resume"},

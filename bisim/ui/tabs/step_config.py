@@ -1,7 +1,10 @@
 """③ ステップ設定（仕様 5-③）
 
-選択中レシピを編集する。プレビュー3面（入力 / ヒートマップ / 前回Aging結果）、
+選択中レシピを編集する。プレビュー3面（入力 / ヒートマップ / 前ステップの画像）、
 モデルパラメータ表＋CSV、Sim条件＋CSV、初期ストレス（なし / 前ステップ継承 / ファイル指定）。
+ステップ種別（Aging / PQ評価）は手動で選ぶ。PQ評価ではヒートマップ・Sim条件の欄を隠す
+（ストレスを貯めない・温度設定なし。2026-10-19 決定）。
+入力画像・ヒートマップは選んだ時点でシーケンスの基準サイズと比べ、違えば警告して選ばせない。
 BC設定・処理パイプライン・A/B は将来枠（無効表示）。
 """
 from __future__ import annotations
@@ -14,10 +17,10 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from bisim import naming, paramio
-from bisim.model import MODEL_KEYS, Recipe, Sequence
+from bisim import engine, naming, paramio
+from bisim.model import MODEL_KEYS, STEP_TYPES, Recipe, Sequence
 from bisim.ui.i18n import t
-from bisim.ui.tabs._common import kind_label, with_btn
+from bisim.ui.tabs._common import with_btn
 from bisim.ui.widgets import ImagePanel, read_first_frame
 
 IMG_FILTER = "画像・動画 / images & movies (*.png *.mp4);;すべて / all (*)"
@@ -44,6 +47,17 @@ class StepConfigTab(QWidget):
         self.l_name = QLabel(t("cfg.name"))
         f1.addRow(self.l_name, self.ed_name)
 
+        # ステップ種別（手動選択。入力が動画か静止画かとは独立）
+        self.cmb_kind = QComboBox()
+        self.cmb_kind.addItems([t(f"kind.{k}") for k in STEP_TYPES])
+        self.cmb_kind.currentIndexChanged.connect(self._on_kind_changed)
+        self.l_kind = QLabel(t("cfg.kind"))
+        f1.addRow(self.l_kind, self.cmb_kind)
+        self.lbl_kind_note = QLabel("")
+        self.lbl_kind_note.setWordWrap(True)
+        self.lbl_kind_note.setStyleSheet("color:#555;")
+        f1.addRow(self.lbl_kind_note)
+
         self.ed_img = QLineEdit()
         self.ed_img.setReadOnly(True)
         self.b_img = QPushButton(t("btn.browse"))
@@ -56,7 +70,8 @@ class StepConfigTab(QWidget):
         self.b_ht = QPushButton(t("btn.browse"))
         self.b_ht.clicked.connect(lambda: self._pick_file("heatmap"))
         self.l_ht = QLabel(t("cfg.heatmap"))
-        f1.addRow(self.l_ht, with_btn(self.ed_ht, self.b_ht))
+        self._row_ht = with_btn(self.ed_ht, self.b_ht)
+        f1.addRow(self.l_ht, self._row_ht)
 
         # ヒートマップなし＝パネル全面を固定温度で計算（IP設計者レビュー2 (1)）
         ht_fixed_host = QWidget()
@@ -70,11 +85,9 @@ class StepConfigTab(QWidget):
         ht_fixed_lay.addWidget(self.sp_fixed_temp)
         ht_fixed_lay.addWidget(self.l_ht_fixed_unit)
         ht_fixed_lay.addStretch(1)
+        self._row_ht_fixed = ht_fixed_host
         f1.addRow(ht_fixed_host)
-
-        self.lbl_kind = QLabel(t("kind.unknown"))
-        self.l_kind = QLabel(t("cfg.kind"))
-        f1.addRow(self.l_kind, self.lbl_kind)
+        self._f1 = f1
         form.addLayout(f1)
 
         # ---- 初期ストレス ----
@@ -203,7 +216,7 @@ class StepConfigTab(QWidget):
         return self.main.sequence.folders
 
     def set_enabled(self, on: bool):
-        for w in (self.ed_name, self.ed_img, self.cmb_init, self.tbl_model,
+        for w in (self.ed_name, self.cmb_kind, self.ed_img, self.cmb_init, self.tbl_model,
                   self.sp_accel, self.sp_tl, self.sp_th, self.sp_aging, self.btn_apply,
                   self.b_img, self.cb_ht_fixed, self.b_load, self.b_save,
                   self.b_load_sim, self.b_save_sim):
@@ -229,7 +242,10 @@ class StepConfigTab(QWidget):
         self.cb_ht_fixed.blockSignals(False)
         self.sp_fixed_temp.setValue(recipe.fixed_temp_c)
         self._sync_heatmap_widgets(True)
-        self.lbl_kind.setText(kind_label(recipe))
+        self.cmb_kind.blockSignals(True)
+        self.cmb_kind.setCurrentIndex(STEP_TYPES.index(recipe.step_type))
+        self.cmb_kind.blockSignals(False)
+        self._sync_kind_widgets(refresh=False)       # プレビューは load の最後でまとめて更新
         self.cmb_init.blockSignals(True)
         self.cmb_init.setCurrentIndex(INIT_KEYS.index(recipe.init_stress))
         self.cmb_init.blockSignals(False)
@@ -265,6 +281,7 @@ class StepConfigTab(QWidget):
         name = self.ed_name.text().strip()
         if name:
             r.recipe_name = name
+        r.step_type = STEP_TYPES[self.cmb_kind.currentIndex()]
         r.init_stress = INIT_KEYS[self.cmb_init.currentIndex()]
         r.heatmap_mode = "fixed" if self.cb_ht_fixed.isChecked() else "file"
         r.fixed_temp_c = self.sp_fixed_temp.value()
@@ -300,17 +317,60 @@ class StepConfigTab(QWidget):
         if not path:
             return
         p = Path(path)
+        if not self._check_size(p, folder_key):
+            return                      # 基準サイズと違う → 選ばせない（フォルダも変えない）
         self._folders()[folder_key] = str(p.parent)
         if folder_key == "input_image":
             self.recipe.input_image = p.name
             self.ed_img.setText(p.name)
-            self.lbl_kind.setText(kind_label(self.recipe))
         else:
             self.recipe.heatmap = p.name
             self.ed_ht.setText(p.name)
         self.main.folders_changed()
         self.main.steps_changed()
         self._refresh_previews()
+
+    def _check_size(self, path: Path, folder_key: str) -> bool:
+        """選んだ画像がシーケンスの基準サイズと同じか（2026-10-19 決定）。違えば警告して False。
+
+        基準＝シーケンス内で最初に見つかる画像（ステップ順に入力画像→ヒートマップ）。
+        動画・静止画の別は問わない。選び直している欄そのものは基準から除く。
+        """
+        size = engine.media_size(path)
+        if size is None:
+            QMessageBox.warning(self, t("cfg.size.title"), t("cfg.size.unreadable", name=path.name))
+            return False
+        ref = engine.sequence_reference_size(self.main.sequence, skip=(self.row, folder_key))
+        if ref is None or ref.size == size:
+            return True
+        ref_recipe = self.main.sequence.recipes[ref.index]
+        QMessageBox.warning(self, t("cfg.size.title"), t(
+            "cfg.size.msg", sel=path.name, w=size[0], h=size[1],
+            rw=ref.size[0], rh=ref.size[1], n=ref.index + 1, recipe=ref_recipe.recipe_name,
+            field=t("cfg.input") if ref.field == "input_image" else t("cfg.heatmap"),
+            name=ref.name))
+        return False
+
+    # -- ステップ種別 --
+    def _on_kind_changed(self, _idx: int):
+        if self.recipe is None:
+            return
+        # 種別は即時反映（②の一覧・④の表示を更新。③の他の未適用の入力は残す）
+        self.recipe.step_type = STEP_TYPES[self.cmb_kind.currentIndex()]
+        self._sync_kind_widgets()
+        self.main.steps_tab.refresh()
+        self.main.run_tab.refresh_steps()
+
+    def _sync_kind_widgets(self, refresh: bool = True):
+        """PQ評価ではヒートマップ（温度）と Sim条件（Aging条件）の欄を隠す。"""
+        is_eval = STEP_TYPES[self.cmb_kind.currentIndex()] == "eval"
+        self._f1.setRowVisible(self._row_ht, not is_eval)
+        self._f1.setRowVisible(self._row_ht_fixed, not is_eval)
+        self.gb_sim.setVisible(not is_eval)
+        self.lbl_kind_note.setText(
+            t("cfg.kind.note_eval", v=engine.EVAL_TEMP_C) if is_eval else t("cfg.kind.note_aging"))
+        if refresh and self.recipe is not None:
+            self._refresh_previews()
 
     def _pick_stat(self, edit: QLineEdit):
         start = self._folders()["output"]
@@ -341,7 +401,9 @@ class StepConfigTab(QWidget):
         fh = self._folders()["heatmap"]
         self.pv_img.set_bgr(
             read_first_frame(str(Path(fi) / r.input_image)) if r.input_image else None)
-        if self.cb_ht_fixed.isChecked():
+        if STEP_TYPES[self.cmb_kind.currentIndex()] == "eval":
+            self.pv_ht.set_message(t("cfg.pv.heatmap_eval"))
+        elif self.cb_ht_fixed.isChecked():
             self.pv_ht.set_message(t("cfg.pv.heatmap_fixed", v=self.sp_fixed_temp.value()))
         else:
             self.pv_ht.set_bgr(
@@ -441,6 +503,12 @@ class StepConfigTab(QWidget):
         self.cb_ht_fixed.setText(t("cfg.heatmap.fixed_cb"))
         self.l_ht_fixed_unit.setText(t("cfg.heatmap.fixed_unit"))
         self.l_kind.setText(t("cfg.kind"))
+        cur_kind = self.cmb_kind.currentIndex()
+        self.cmb_kind.blockSignals(True)
+        self.cmb_kind.clear()
+        self.cmb_kind.addItems([t(f"kind.{k}") for k in STEP_TYPES])
+        self.cmb_kind.setCurrentIndex(max(cur_kind, 0))
+        self.cmb_kind.blockSignals(False)
         self.b_img.setText(t("btn.browse"))
         self.b_ht.setText(t("btn.browse"))
         self.gb_init.setTitle(t("cfg.grp.init"))
