@@ -11,3 +11,6 @@
 /build/
 /dist/
 *.manifest
+
+# 理論確認テスト（3色円）の bisim 出力（CSV で約250MB）
+/eval_test/rgbcircle/output/
