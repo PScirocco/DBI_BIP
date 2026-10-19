@@ -14,3 +14,7 @@
 
 # 理論確認テスト（3色円）の bisim 出力（CSV で約250MB）
 /eval_test/rgbcircle/output/
+
+# 個人スケジュール・チーム共有資料（リポジトリでは管理しない）
+/schedule/
+/team/
