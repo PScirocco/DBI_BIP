@@ -12,8 +12,9 @@
 /dist/
 *.manifest
 
-# 理論確認テスト（3色円）の bisim 出力（CSV で約250MB）
-/eval_test/rgbcircle/output/
+# 評価用データ・評価結果（理論確認テスト一式、別PCでの実行結果。出力 CSV が大きいため管理しない）
+/eval_test/
+/eval_test_other-PC/
 
 # 個人スケジュール・チーム共有資料（リポジトリでは管理しない）
 /schedule/
