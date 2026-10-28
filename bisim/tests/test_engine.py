@@ -1,6 +1,7 @@
 """engine.py のテスト（実データ・実コアを使う統合テスト）"""
 from __future__ import annotations
 
+import sys
 import tempfile
 from pathlib import Path
 
@@ -193,6 +194,45 @@ def test_still_image_aging_stop_and_resume_matches_uninterrupted():
         assert not res2.stopped and res2.frames_done == 4 and res2.frames_absolute == 6
         assert res2.aging_seconds == full.aging_seconds == 600.0
         assert np.allclose(res2.state.r, full.state.r, rtol=1e-12, atol=0)
+
+
+def test_remove_stop_checkpoint_reports_leftover_and_cleanup():
+    """停止フォルダを消せなかったとき（ファイルが開かれている等）は False を返し、
+    残った空フォルダは cleanup_empty_stop_dirs で後から消せる（評価 261021B B-6）。"""
+    from bisim.model import StopState
+    with tempfile.TemporaryDirectory() as d:
+        f = _folders(d)
+        st = StopState(recipe_name="a", frames_done=1, frames_total=2, aging_seconds=1.0,
+                       is_movie=False, timestamp="261022-1000", dir="_stops/S_01_a")
+        base = Path(d) / st.dir
+        base.mkdir(parents=True)
+        (base / "stat_r.csv").write_text("0")
+        assert engine.remove_stop_checkpoint(f, st) is True and not base.exists()
+
+        on_windows = sys.platform.startswith("win")
+        base.mkdir(parents=True)
+        locked = base / "stat_r.csv"
+        fh = open(locked, "w")                      # Windows では開いているファイルは消せない
+        try:
+            ok = engine.remove_stop_checkpoint(f, st)
+            if on_windows:
+                assert ok is False and base.exists()          # 消せなかったことを返す
+                assert engine.cleanup_empty_stop_dirs(f) == []  # 中身があるうちは触らない
+        finally:
+            fh.close()
+        if locked.exists():
+            locked.unlink()                         # ファイルが閉じられて中身が消えた状態
+        keep = Path(d) / "_stops" / "S_02_b"
+        keep.mkdir(parents=True)
+        (keep / "stat_r.csv").write_text("0")       # 中身のあるフォルダは触らない
+        removed = engine.cleanup_empty_stop_dirs(f)
+        if on_windows:
+            assert removed == ["S_01_a"]
+        assert not base.exists() and keep.exists()
+        import shutil
+        shutil.rmtree(keep)
+        engine.cleanup_empty_stop_dirs(f)
+        assert not (Path(d) / "_stops").exists()   # 空になった _stops 自体も消える
 
 
 def test_media_size_and_sequence_reference_size():

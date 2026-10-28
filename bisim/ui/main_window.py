@@ -166,6 +166,10 @@ class MainWindow(QMainWindow):
                   self.run_tab, self.results_tab):
             self.tabs.addTab(w, "")
         self.setCentralWidget(self.tabs)
+        # ③へ切り替えたら「前ステップの画像」を描き直す（④で前ステップを実行した後でも表示されるように）
+        self.tabs.currentChanged.connect(
+            lambda _i: self.config_tab.refresh_prev_preview()
+            if self.tabs.currentWidget() is self.config_tab else None)
 
         self._build_menus()
         self._elapsed = QTimer(self)
@@ -268,6 +272,8 @@ class MainWindow(QMainWindow):
         self._stopped_states = {int(nn): st for nn, st in seq.stops.items()
                                 if nn.isdigit()}
         self.results_tab.clear_results()
+        for name in engine.cleanup_empty_stop_dirs(seq.folders):
+            self.logger.action(f"空の停止フォルダを削除: {name}")
         self.current_row = 0 if seq.recipes else None
         self.folders_changed()
         self.steps_changed()
@@ -280,7 +286,7 @@ class MainWindow(QMainWindow):
     def save_sequence(self, as_new: bool = False):
         """シーケンス JSON 保存。ファイル名は常にシーケンス名（サニタイズ後）に一致させる。
 
-        - 名前を付けて保存: 選んだファイル名からシーケンス名を取り直す
+        - 名前を付けて保存: 選んだファイル名からシーケンス名を取り直す。元のファイルは残す
         - 保存: シーケンス名が変わっていれば旧ファイルをリネーム（移動）する
         """
         old_path = self._seq_path
@@ -305,7 +311,9 @@ class MainWindow(QMainWindow):
         except OSError as e:
             QMessageBox.critical(self, t("dlg.err.title"), str(e))
             return
-        if old_path is not None and old_path.exists() and old_path != path:
+        # 「保存」でシーケンス名を変えたときだけ旧ファイルを消す（＝リネーム）。
+        # 「名前を付けて保存」は別ファイルとして保存し、元のファイルは残す（評価メモ 261021B-1）
+        if not as_new and old_path is not None and old_path.exists() and old_path != path:
             try:
                 old_path.unlink()                      # 旧ファイルをリネーム（＝新規保存＋旧削除）
                 self.logger.action(f"シーケンス改名: {old_path.name} → {path.name}")
@@ -501,6 +509,7 @@ class MainWindow(QMainWindow):
         self.control.reset()
         self.tabs.setCurrentWidget(self.run_tab)
         self.run_tab.set_running(True)
+        self._set_editing_locked(True)
         self._t0 = time.time()
         self._paused_total = 0.0
         self._pause_t0 = None
@@ -520,6 +529,48 @@ class MainWindow(QMainWindow):
         self.worker.sig_finished.connect(self._on_finished)
         self.worker.sig_error.connect(self._on_error)
         self.worker.start()
+
+    def _set_editing_locked(self, locked: bool) -> None:
+        """実行中（一時停止中を含む）は ①②③タブとファイル操作（開く・保存・レシピ読込/保存）を使えなくする。
+
+        実行中にパラメータの適用・ステップの削除や並べ替え・フォルダ変更・別シーケンスの読込をすると、
+        計算の途中で条件が変わったり、結果が別のステップに付いたりするため（2026-10-22）。
+        ④実行・⑤結果・言語切替は使える。
+        """
+        for w in (self.folders_tab, self.steps_tab, self.config_tab):
+            self.tabs.setTabEnabled(self.tabs.indexOf(w), not locked)
+        for a in (self.act_open, self.act_save, self.act_save_as,
+                  self.act_recipe_load, self.act_recipe_save):
+            a.setEnabled(not locked)
+
+    # ---- 停止中のステップがあるときのステップ並べ替え（C）----
+    def confirm_steps_shift(self) -> bool:
+        """②で削除・複製・並べ替えをする前に呼ぶ。続けてよければ True。
+
+        停止状態は「何番目のステップか（NN）」で覚えているため、ステップの位置が変わると
+        別のステップに付いてしまい、別のレシピを別の停止データから再開しかねない。
+        停止中のステップがあれば確認し、続けるなら停止状態（と _stops/ の実体）を破棄する。
+        """
+        if not self._stopped_states:
+            return True
+        names = "\n".join(f"  #{nn}  {st.recipe_name}" for nn, st in sorted(self._stopped_states.items()))
+        ans = QMessageBox.question(self, t("steps.stops_reset.title"),
+                                   t("steps.stops_reset.msg", steps=names))
+        if ans != QMessageBox.StandardButton.Yes:
+            return False
+        for nn, st in sorted(self._stopped_states.items()):
+            engine.remove_stop_checkpoint(self.sequence.folders, st)
+            self.logger.action(f"ステップの並べ替えのため停止状態を破棄: {nn:02d} {st.recipe_name}")
+        self._stopped_states.clear()
+        self.sequence.stops.clear()
+        if self._seq_path is not None:
+            try:
+                self.sequence.save(self._seq_path)
+                self.logger.action(f"シーケンス自動保存（停止状態を破棄）: {self._seq_path.name}")
+            except OSError as e:
+                QMessageBox.warning(self, t("dlg.err.title"), str(e))
+        self.run_tab.update_resume_btn()
+        return True
 
     def pause_run(self):
         self.control.request_pause()
@@ -572,13 +623,18 @@ class MainWindow(QMainWindow):
             self._finish_resume(self._resume_nn)
         self._resume_nn = None
         self.worker = None
+        self._set_editing_locked(False)
         self.run_tab.on_finished(stopped)
         self.run_tab.update_resume_btn()
         if stopped:
             self.statusBar().showMessage(
                 t("status.stopped") if saved else t("status.stopped_discard"), 5000)
         else:
-            self.statusBar().showMessage(t("status.run_done"), 4000)
+            left, self._stop_dir_left = getattr(self, "_stop_dir_left", None), None
+            if left:
+                self.statusBar().showMessage(t("status.stop_dir_left", dir=left), 10000)
+            else:
+                self.statusBar().showMessage(t("status.run_done"), 4000)
 
     def _handle_stopped(self, res: engine.RunResult) -> bool:
         """停止結果を保存要否ダイアログにかける。保存したら True。"""
@@ -617,15 +673,21 @@ class MainWindow(QMainWindow):
         st = self._stopped_states.get(nn)
         if st is None:
             return
-        engine.remove_stop_checkpoint(self.sequence.folders, st)
+        removed = engine.remove_stop_checkpoint(self.sequence.folders, st)
         self._clear_stop(nn)
         self._autosave_sequence()
         self.logger.action(f"ステップ {nn:02d} を停止位置から再開し完了（停止状態を消去）")
+        if not removed:
+            # エクスプローラー等でフォルダを開いていると、中身は消えてもフォルダが残る（Windows）。
+            # 実害はない（停止状態はシーケンス側から消してある）。空フォルダは次に開いたとき等に掃除する
+            self.logger.error(t("run.log.stop_dir_left", dir=st.dir))
+            self._stop_dir_left = st.dir
         self.run_tab.update_resume_btn()
 
     def _on_error(self, msg):
         self._cleanup_worker()
         self.worker = None
+        self._set_editing_locked(False)
         self.run_tab.on_error(msg)
         self.logger.error(msg)
         QMessageBox.critical(self, t("dlg.err.title"), msg)

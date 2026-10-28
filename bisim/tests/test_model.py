@@ -65,6 +65,26 @@ def test_recipe_step_type_is_manual():
     assert any("step_type" in p for p in bad.validate())
 
 
+def test_sequence_relative_folders_resolve_against_app_dir():
+    """シーケンスの folders は相対パスでもよい。基準は APP_DIR（EXE では bisim.exe のフォルダ、
+    開発時はリポジトリ直下）。シーケンスファイル自体はどこに置いてもよい。"""
+    import json
+    import tempfile
+    from bisim.paths import APP_DIR, DEFAULT_FOLDERS
+    with tempfile.TemporaryDirectory() as d:
+        absdir = str(Path(d).resolve() / "abs_out")
+        (Path(d) / "t.seq.json").write_text(json.dumps({
+            "sequence_name": "t",
+            "folders": {"input_image": "eval_test/rgbcircle/input", "heatmap": "eval_test/../ht",
+                        "output": absdir},
+            "recipes": []}), encoding="utf-8")
+        s = Sequence.load(Path(d) / "t.seq.json")
+        assert Path(s.folders["input_image"]) == (APP_DIR / "eval_test" / "rgbcircle" / "input").resolve()
+        assert Path(s.folders["heatmap"]) == (APP_DIR / "ht").resolve()
+        assert s.folders["output"] == absdir                      # 絶対パスはそのまま
+        assert s.folders["model"] == str(DEFAULT_FOLDERS["model"])  # 書かれていない欄はそのPCの既定
+
+
 def test_recipe_from_old_json_without_step_type():
     """種別の欄が無い旧シーケンス JSON は拡張子から決める（従来と同じ動作）。"""
     assert Recipe.from_dict({"recipe_name": "a", "input_image": "x.mp4"}).step_type == "aging"

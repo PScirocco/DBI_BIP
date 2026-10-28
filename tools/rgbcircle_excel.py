@@ -11,7 +11,11 @@ Python の理論計算（tools/rgbcircle_theory.py）とは別に、劣化モデ
   比較       7つの評価時点 × R/G/B で、Excel の値と bisim の値（CSV・評価画像）を並べて判定
 
 使い方:
-  python tools/rgbcircle_excel.py [--bisim-out <bisimの出力フォルダ>] [--out <xlsx>]
+  python tools/rgbcircle_excel.py [--seq <シーケンス>] [--bisim-out <bisimの出力フォルダ>] [--out <xlsx>]
+  例）別PCからフォルダごとコピーした結果で作る：
+      python tools/rgbcircle_excel.py --seq eval_test_other-PC/rgbcircle/rgbcircle.seq.json
+  フォルダの決め方は tools/_seqpaths.py（コマンドの指定 → シーケンスに書かれたパス（相対パスは
+  bisim.exe のフォルダ＝--app-dir が基準。既定はリポジトリ直下）→ シーケンスの横の output）
   作成後、Excel で開くと計算される（このスクリプトは Excel があれば開いて計算・保存まで行う）
 """
 from __future__ import annotations
@@ -27,6 +31,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "tools"))
+from _seqpaths import APP_DIR_HELP, display_path, load_sequence, resolve_folder  # noqa: E402
 FONT = "Meiryo UI"
 
 SEQ = "rgbcircle"
@@ -334,10 +340,10 @@ def sheet_readme(wb, bisim_label):
         ("", None),
         ("■ 比較した bisim の結果", "h"),
         (f"  {bisim_label}", None),
-        ("  シーケンス eval_test/rgbcircle/rgbcircle.seq.json（ACCEL_RATIO=3600、固定温度 25℃、Aging→PQ評価 を累積 0.5h〜50h で7回）", None),
+        ("  シーケンス rgbcircle.seq.json（ACCEL_RATIO=3600、固定温度 25℃、Aging→PQ評価 を累積 0.5h〜50h で7回）", None),
         ("", None),
         ("■ 作り直し方", "h"),
-        ("  python tools/rgbcircle_excel.py --bisim-out <bisim の出力フォルダ> --out <xlsx>", None),
+        ("  python tools/rgbcircle_excel.py --seq <シーケンスファイル> [--bisim-out <bisim の出力フォルダ>] [--out <xlsx>]", None),
     ]
     r = 1
     for text, kind in lines:
@@ -373,10 +379,22 @@ def recalc_with_excel(path: Path) -> bool:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--bisim-out", type=Path, default=REPO / "eval_test_other-PC" / "rgbcircle" / "output")
-    ap.add_argument("--out", type=Path, default=REPO / "eval_test" / "rgbcircle" / "理論値_Excel検算.xlsx")
-    ap.add_argument("--label", default="別PC（EXE）で実行した結果：eval_test_other-PC/rgbcircle/output")
+    ap.add_argument("--seq", type=Path, default=REPO / "eval_test" / "rgbcircle" / "rgbcircle.seq.json",
+                    help="bisim で実行したシーケンス（出力フォルダはここから決める）")
+    ap.add_argument("--bisim-out", type=Path, help="bisim の出力フォルダ（既定：シーケンスの output）")
+    ap.add_argument("--out", type=Path, help="作る xlsx（既定：シーケンスの横の 理論値_Excel検算.xlsx）")
+    ap.add_argument("--app-dir", type=Path, help=APP_DIR_HELP)
+    ap.add_argument("--label", help="ブックに書く「比較した bisim の結果」の説明（既定：出力フォルダのパス）")
     a = ap.parse_args()
+
+    seq, seq_path = load_sequence(a.seq)
+    a.bisim_out = resolve_folder(seq, seq_path, "output", "output", a.bisim_out, a.app_dir)
+    if not a.bisim_out.is_dir():
+        sys.exit(f"bisim の出力フォルダが見つかりません: {a.bisim_out}（--bisim-out で指定できます）")
+    a.out = a.out or (seq_path.parent / "理論値_Excel検算.xlsx")
+    a.label = a.label or display_path(a.bisim_out, REPO)
+    print(f"シーケンス: {seq_path}")
+    print(f"bisim の出力: {a.bisim_out}")
 
     wb = Workbook()
     sheet_readme(wb, a.label)

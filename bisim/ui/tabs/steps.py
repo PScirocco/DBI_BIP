@@ -96,7 +96,7 @@ class StepsTab(QWidget):
 
     def _dup(self):
         r = self.current_row()
-        if r is None:
+        if r is None or not self.main.confirm_steps_shift():   # 後ろのステップの位置がずれる
             return
         s = copy.deepcopy(self._recipes()[r])
         s.recipe_name = self._unique_name(s.recipe_name + t("steps.copy_suffix"))
@@ -107,7 +107,7 @@ class StepsTab(QWidget):
 
     def _del(self):
         r = self.current_row()
-        if r is None:
+        if r is None or not self.main.confirm_steps_shift():
             return
         del self._recipes()[r]
         self.main.steps_changed()
@@ -119,6 +119,8 @@ class StepsTab(QWidget):
         j = r + d
         rs = self._recipes()
         if 0 <= j < len(rs):
+            if not self.main.confirm_steps_shift():
+                return
             rs[r], rs[j] = rs[j], rs[r]
             self.main.steps_changed()
             self._select_row(j)

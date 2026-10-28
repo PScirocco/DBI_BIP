@@ -70,6 +70,9 @@ class RunTab(QWidget):
         self.pb_step = QProgressBar()
         self.lbl_frame = QLabel(t("run.dash"))
         self.pb_frame = QProgressBar()
+        # 言語切替（retranslate）で描き直せるよう、表示中の値を覚えておく（None＝未実行の「—」）
+        self._calc_sec = 0.0
+        self._aging_text = None
         self.lbl_calc = QLabel(t("run.calc_time", s=0.0))
         self.lbl_aging = QLabel(t("run.aging_time", v=t("run.dash")))
         for w in (self.lbl_step, self.pb_step, self.lbl_frame, self.pb_frame,
@@ -207,6 +210,7 @@ class RunTab(QWidget):
         self.pb_step.setValue(0)
         self.pb_frame.setRange(0, 1)
         self.pb_frame.setValue(0)
+        self._aging_text = None
         self.lbl_aging.setText(t("run.aging_time", v=t("run.dash")))
         self.append_log(t("run.log.start", n=nsteps))
 
@@ -222,9 +226,11 @@ class RunTab(QWidget):
             self.preview.set_qimage(qimg)
 
     def on_calc_time(self, sec: float):
+        self._calc_sec = sec
         self.lbl_calc.setText(t("run.calc_time", s=sec))
 
     def on_aging_time(self, text: str):
+        self._aging_text = text
         self.lbl_aging.setText(t("run.aging_time", v=text))
 
     def on_finished(self, stopped: bool):
@@ -246,6 +252,8 @@ class RunTab(QWidget):
         self.b_stop.setText(t("run.btn.stop"))
         self.b_resume_stop.setText(t("run.btn.resume_stop"))
         self.preview.set_title(t("run.preview"))
+        self.lbl_calc.setText(t("run.calc_time", s=self._calc_sec))
+        self.lbl_aging.setText(t("run.aging_time", v=self._aging_text or t("run.dash")))
         self._update_movie_info()
         if not self._running:
             self.lbl_step.setText(t("run.idle"))

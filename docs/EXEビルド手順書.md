@@ -89,6 +89,10 @@ py -3.9 -m venv .venv
 6. `dist\BI-sim` を `dist\BI-sim_YYMMDD.zip` に圧縮（`tar` 優先、失敗時 `Compress-Archive`）
    - **zip に失敗しても `dist\BI-sim\` は完成済み**。警告を出して続行する（§7 の配布は zip でもフォルダコピーでも可）
 
+> **注意（テストデータ）**：手順3で `dist\BI-sim\` は丸ごと消える。EXE 用に `dist\BI-sim\eval_test\...` へ置いた
+> テストデータや実行結果も消えるので、必要な結果は先に退避し、ビルド後にデータをコピーし直す。
+> シーケンスの相対パスは BI-sim.exe のフォルダが基準（tools と EXE の位置関係・実行条件は `tools/README.md`）。
+
 ### 4-B. 手動で（スクリプトを使わない場合）
 
 ```powershell

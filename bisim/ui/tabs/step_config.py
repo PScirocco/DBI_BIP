@@ -327,7 +327,11 @@ class StepConfigTab(QWidget):
             self.recipe.heatmap = p.name
             self.ed_ht.setText(p.name)
         self.main.folders_changed()
-        self.main.steps_changed()
+        # ②の一覧・④の表示だけ更新する。③をレシピから読み直す（main.steps_changed）と、
+        # まだ「適用」していない入力（初期ストレス・レシピ名など）が元に戻ってしまう
+        # （評価メモ 261021B-3：「前ステップ継承」を選んだ直後に参照…で画像を選ぶとプレビューが消える）
+        self.main.steps_tab.refresh()
+        self.main.run_tab.refresh_steps()
         self._refresh_previews()
 
     def _check_size(self, path: Path, folder_key: str) -> bool:
@@ -395,6 +399,15 @@ class StepConfigTab(QWidget):
         self._refresh_previews()
 
     # -- previews --
+    def refresh_prev_preview(self):
+        """「前ステップの画像」だけを描き直す（③タブに切り替えたときに MainWindow から呼ぶ）。
+
+        ④で前ステップを実行した後に③へ切り替えても「未実行です」のまま残っていた（2026-10-22 修正）。
+        フォーム全体は読み直さない（未適用の入力を消さないため）。
+        """
+        if self.recipe is not None and self.row is not None:
+            self._refresh_prev_preview(INIT_KEYS[self.cmb_init.currentIndex()])
+
     def _refresh_previews(self):
         r = self.recipe
         fi = self._folders()["input_image"]
@@ -408,7 +421,8 @@ class StepConfigTab(QWidget):
         else:
             self.pv_ht.set_bgr(
                 read_first_frame(str(Path(fh) / r.heatmap)) if r.heatmap else None)
-        self._refresh_prev_preview(r.init_stress)
+        # 前ステップの画像は、画面で選んでいる初期ストレス（未適用でも）に合わせて出す
+        self._refresh_prev_preview(INIT_KEYS[self.cmb_init.currentIndex()])
 
     def _refresh_prev_preview(self, key: str):
         self.pv_prev.set_title(t("cfg.pv.prev"))

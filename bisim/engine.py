@@ -722,13 +722,44 @@ def build_resume_plan(folders: dict, st: StopState) -> tuple:
                       aging_seconds=st.aging_seconds, video=video), None
 
 
-def remove_stop_checkpoint(folders: dict, st: StopState) -> None:
-    """再開完了時などにチェックポイント実体を消す（``Sequence.stops`` の掃除は呼び出し側）。"""
+def remove_stop_checkpoint(folders: dict, st: StopState) -> bool:
+    """再開完了時などにチェックポイント実体を消す（``Sequence.stops`` の掃除は呼び出し側）。
+
+    戻り値: 消せた（または元から無い）なら True。Windows ではフォルダをエクスプローラーで
+    開いているとファイルは消えてもフォルダが残るため、その場合は False（呼び出し側で警告し、
+    残った空フォルダは :func:`cleanup_empty_stop_dirs` で後から消す）。
+    """
     if not st.dir:
-        return
+        return True
     base = Path(folders["output"]) / st.dir
     if base.is_dir():
         shutil.rmtree(base, ignore_errors=True)
+    return not base.exists()
+
+
+def cleanup_empty_stop_dirs(folders: dict) -> list:
+    """``<output>/_stops/`` の下に残った**空の**フォルダを消す（中身のあるものは触らない）。
+
+    再開完了時に消せなかった停止フォルダ（エクスプローラーで開いていた等）の後始末。
+    ``_stops/`` 自体も空になれば消す。戻り値は消したフォルダ名のリスト。
+    """
+    root = Path(folders["output"]) / CHECKPOINT_ROOT
+    removed: list = []
+    if not root.is_dir():
+        return removed
+    for d in sorted(root.iterdir()):
+        if d.is_dir() and not any(d.iterdir()):
+            try:
+                d.rmdir()
+                removed.append(d.name)
+            except OSError:
+                pass
+    try:
+        if not any(root.iterdir()):
+            root.rmdir()
+    except OSError:
+        pass
+    return removed
 
 
 def discard_recipe_outputs(result: RunResult) -> None:

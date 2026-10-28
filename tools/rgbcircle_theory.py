@@ -24,12 +24,18 @@ T は固定温度[℃]+273。Aging のフレーム数は bisim と同じ規則�
   python tools/rgbcircle_theory.py                 理論値だけ
   python tools/rgbcircle_theory.py --compare       bisim の出力フォルダ（シーケンスの output）と比較
   python tools/rgbcircle_theory.py --compare --bisim-out <フォルダ>   出力先を指定して比較
+  python tools/rgbcircle_theory.py --seq <別PCからコピーしたフォルダ>/rgbcircle.seq.json --compare
+
+  python tools/rgbcircle_theory.py --seq <bisim.exe のフォルダ>/eval_test/rgbcircle/rgbcircle.seq.json ^
+        --app-dir <bisim.exe のフォルダ> --compare     別PCの EXE で実行した結果と比較
+
+フォルダの決め方（tools/_seqpaths.py）: コマンドの指定 → シーケンスに書かれたパス（相対パスは
+bisim.exe のフォルダ＝--app-dir が基準。既定はリポジトリ直下）→ それが無ければシーケンスファイルの横の input / output
 """
 from __future__ import annotations
 
 import argparse
 import csv
-import json
 import math
 import sys
 from dataclasses import dataclass, field
@@ -41,6 +47,8 @@ import numpy as np
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 from bisim import naming  # noqa: E402  （出力ファイル名の規則だけ借りる）
+sys.path.insert(0, str(REPO / "tools"))
+from _seqpaths import APP_DIR_HELP, load_sequence, resolve_folder  # noqa: E402
 
 COLORS = "rgb"
 EVAL_TEMP_C = 25.0                               # bisim.engine.EVAL_TEMP_C と同じ（評価は温度設定なし）
@@ -142,8 +150,7 @@ class StepResult:
     ideal: dict = field(default_factory=dict)  # c -> (stat, deg, 評価値)：画素値=255 の理想値
 
 
-def simulate(seq: dict, base_dir: Path) -> list:
-    in_dir = Path(seq["folders"]["input_image"])
+def simulate(seq: dict, in_dir: Path) -> list:
     movies: dict = {}
     results: list = []
     stat = ideal = None
@@ -392,18 +399,22 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     base = REPO / "eval_test" / "rgbcircle"
     ap.add_argument("--seq", type=Path, default=base / "rgbcircle.seq.json")
-    ap.add_argument("--out", type=Path, default=base / "theory")
+    ap.add_argument("--out", type=Path, help="結果の出力先（既定：シーケンスの横の theory）")
     ap.add_argument("--compare", action="store_true", help="bisim の出力と比較する")
     ap.add_argument("--bisim-out", type=Path, help="bisim の出力フォルダ（既定：シーケンスの output）")
+    ap.add_argument("--input-dir", type=Path, help="入力画像のフォルダ（既定：シーケンスの input_image）")
+    ap.add_argument("--app-dir", type=Path, help=APP_DIR_HELP)
     a = ap.parse_args()
 
-    seq = json.loads(a.seq.read_text(encoding="utf-8"))
+    seq, seq_path = load_sequence(a.seq)
+    in_dir = resolve_folder(seq, seq_path, "input_image", "input", a.input_dir, a.app_dir)
+    a.out = a.out or (seq_path.parent / "theory")
     a.out.mkdir(parents=True, exist_ok=True)
-    print(f"シーケンス: {a.seq}")
-    results = simulate(seq, a.seq.parent)
+    print(f"シーケンス: {seq_path}")
+    print(f"入力画像: {in_dir}")
+    results = simulate(seq, in_dir)
     evals = [r for r in results if not r.is_aging]
 
-    in_dir = Path(seq["folders"]["input_image"])
     regions = read_png(in_dir / "rgbcircle-regions.png", cv2.IMREAD_GRAYSCALE)
     write_values(evals, regions, a.out)
     for r in evals:
@@ -411,7 +422,7 @@ def main() -> None:
 
     bisim_images = {}
     if a.compare:
-        bisim_out = a.bisim_out or Path(seq["folders"]["output"])
+        bisim_out = resolve_folder(seq, seq_path, "output", "output", a.bisim_out, a.app_dir)
         print(f"\nbisim 出力と比較: {bisim_out}")
         bisim_images = compare(results, seq, bisim_out, a.out)
     table = write_table_png(evals, a.out, bisim_images)

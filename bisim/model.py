@@ -9,7 +9,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from bisim.paths import DEFAULT_FOLDERS, FOLDER_KEYS
+from bisim.paths import APP_DIR, DEFAULT_FOLDERS, FOLDER_KEYS
 
 # ---- 既定値（dbi_conf の現行値。CLI 版と同じ）----
 MODEL_KEYS = ["N", "K0", "Q", "B0", "A"]      # 各 [R, G, B]
@@ -280,7 +280,23 @@ class Sequence:
 
     @classmethod
     def load(cls, path) -> "Sequence":
-        return cls.from_dict(_read_json(path))
+        seq = cls.from_dict(_read_json(path))
+        seq.resolve_relative_folders(APP_DIR)
+        return seq
+
+    def resolve_relative_folders(self, base) -> None:
+        """``folders`` の相対パスを、``base`` 基準の絶対パスにする（既定は ``APP_DIR``）。
+
+        ``APP_DIR`` は EXE では bisim.exe のフォルダ、開発時はリポジトリ直下。
+        シーケンスファイルには ``"eval_test/rgbcircle/input"`` のような相対パスも書けるので、
+        別PCでも bisim.exe のフォルダの下に同じ構成でデータを置けば、パスを書き換えずに使える
+        （例：tools/make_rgbcircle_test.py が作るシーケンス）。絶対パスはそのまま。
+        JSON に無いフォルダは、そのPC（EXE）の既定フォルダになる（``from_dict``）。
+        保存時は絶対パスで書き出す。
+        """
+        for k, v in list(self.folders.items()):
+            if v and not Path(v).is_absolute():
+                self.folders[k] = str((Path(base) / v).resolve())
 
 
 # --------------------------------------------------------------------------- #

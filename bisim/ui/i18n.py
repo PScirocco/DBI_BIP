@@ -64,6 +64,12 @@ STR: dict[str, dict[str, str]] = {
     "status.stopped": {"ja": "停止しました（保存済み／再開可）", "en": "Stopped (saved / resumable)"},
     "status.stopped_discard": {"ja": "停止しました（破棄）", "en": "Stopped (discarded)"},
     "status.run_done": {"ja": "実行完了", "en": "Run complete"},
+    "status.stop_dir_left": {
+        "ja": "実行完了（停止フォルダ {dir} を削除できませんでした。エクスプローラー等で開いていれば閉じてください。空のフォルダは次にシーケンスを開いたときに削除します）",
+        "en": "Run complete (could not delete the stop folder {dir}. Close it if it is open in Explorer etc.; the empty folder will be removed the next time the sequence is opened)"},
+    "run.log.stop_dir_left": {
+        "ja": "停止フォルダを削除できませんでした（フォルダが開かれている可能性）: {dir}",
+        "en": "Could not delete the stop folder (it may be open): {dir}"},
 
     "dlg.stop_needs_save": {
         "ja": "停止状態はシーケンスに保存されます。保存先が未定です — 名前を付けて保存してください。",
@@ -125,6 +131,13 @@ STR: dict[str, dict[str, str]] = {
     "steps.note": {"ja": "ここは順序操作のみ。ファイル指定は③ステップ設定で行います。",
                    "en": "Order operations only. Assign files in tab 3 (Step config)."},
     "steps.nth": {"ja": "レシピ{n}", "en": "recipe{n}"},
+    "steps.stops_reset.title": {"ja": "停止中のステップがあります", "en": "Stopped steps exist"},
+    "steps.stops_reset.msg": {
+        "ja": "次のステップが停止中です:\n{steps}\n\nステップの削除・複製・並べ替えをすると、ステップの番号がずれるため、"
+              "停止状態は破棄されます（停止位置からの再開はできなくなり、保存した途中結果も削除されます）。\n\n続けますか？",
+        "en": "The following steps are stopped:\n{steps}\n\nDeleting, duplicating or reordering steps shifts the step numbers, "
+              "so the stop states will be discarded (resuming from the stop position will no longer be possible, "
+              "and the saved partial results will be deleted).\n\nContinue?"},
     "steps.copy_suffix": {"ja": "-copy", "en": "-copy"},
 
     "kind.aging": {"ja": "Aging", "en": "Aging"},
@@ -324,6 +337,15 @@ STR: dict[str, dict[str, str]] = {
                              "（max R={r}, G={g}, B={b}）",
                        "en": "normalized & inverted (each of R/G/B by its own max): "
                              "dark = more accumulated (max R={r}, G={g}, B={b})"},
+    "map.scale": {"ja": "スケール", "en": "Scale"},
+    "map.scale.zero": {"ja": "0 〜 面内最大", "en": "0 to in-plane max"},
+    "map.scale.minmax": {"ja": "面内最小 〜 面内最大", "en": "in-plane min to max"},
+    "map.rangev_mm": {"ja": "面内最小〜最大で正規化・反転表示: 暗＝累積大 ({lo} 〜 {v})",
+                      "en": "normalized (in-plane min to max) & inverted: dark = more accumulated ({lo} to {v})"},
+    "map.rangev_rgb_mm": {"ja": "R/G/B各色毎に面内最小〜最大で正規化・反転表示: 暗＝累積大"
+                                "（R {r}, G {g}, B {b}）",
+                          "en": "normalized (each of R/G/B by its own in-plane min to max) & inverted: "
+                                "dark = more accumulated (R {r}, G {g}, B {b})"},
     "map.title.ch": {"ja": "#{idx} {label} {ch}  ({rng})", "en": "#{idx} {label} {ch}  ({rng})"},
     "map.title.rgb": {"ja": "#{idx} {label} RGB合成  ({rng})",
                       "en": "#{idx} {label} RGB composite  ({rng})"},

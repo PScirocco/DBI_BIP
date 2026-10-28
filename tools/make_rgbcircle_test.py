@@ -6,6 +6,8 @@
   input/rgbcircle-pattern.png       参考：MP4 化する前の理想パターン（画素値は 0/255 のみ）
   input/rgbcircle-regions.png       参考：領域番号マップ（0=背景, 1..7 = B,G,G+B,R,R+B,R+G,白）
   rgbcircle.seq.json                bisim でそのまま開けるシーケンス（Aging→評価 を Aging時間ごとに連結）
+                                    フォルダは相対パス（input / output）なので、出力先フォルダごと
+                                    別PCへコピーしても、そのまま開いて実行できる
 
 パネルは 横240 × 縦512 画素。円は R=上、G=左下、B=右下 の三角配置で、
 中心間距離＝半径（3円が互いに重なり、中央が白になる）。
@@ -17,7 +19,11 @@
 評価ステップは Aging しない（静止画は dt=0）ので、次の Aging は評価ステップの累積ストレスをそのまま引き継ぐ。
 
 使い方:
-  python tools/make_rgbcircle_test.py [--out eval_test/rgbcircle] [--radius 70]
+  python tools/make_rgbcircle_test.py [--out eval_test/rgbcircle] [--radius 70] [--app-dir <bisim.exe のフォルダ>]
+
+シーケンスに書くフォルダは、bisim.exe のフォルダ（既定はリポジトリ直下）から見た相対パス
+（例 eval_test/rgbcircle/input）。別PCでは bisim.exe のフォルダの下に eval_test/rgbcircle を
+コピーすれば、そのまま開いて実行できる。
 """
 from __future__ import annotations
 
@@ -36,6 +42,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(REPO))
 from overlay_rgb_circles import make_pattern  # noqa: E402
+from _seqpaths import APP_DIR_HELP, to_app_relative  # noqa: E402
 
 W, H = 240, 512                  # パネルサイズ（横×縦）
 FPS = 30.0
@@ -103,16 +110,20 @@ def recipe(name: str, step_type: str, image: str, aging_time: float, init: str) 
     }
 
 
-def build_sequence(input_dir: Path, output_dir: Path) -> dict:
-    from bisim.paths import DEFAULT_FOLDERS
+def build_sequence(in_dir: Path, out_dir: Path, app_dir_arg=None) -> dict:
     recipes, prev_h = [], 0
     for i, h in enumerate(CUM_HOURS):
         recipes.append(recipe(f"aging-{hours_label(h)}", "aging", MOVIE, (h - prev_h) * 3600.0,
                               "none" if i == 0 else "prev"))
         recipes.append(recipe(f"eval-{hours_label(h)}", "eval", WHITE, 0.0, "prev"))
         prev_h = h
-    folders = {k: str(v) for k, v in DEFAULT_FOLDERS.items()}
-    folders.update(input_image=str(input_dir), heatmap=str(input_dir), output=str(output_dir))
+    # フォルダは bisim.exe のフォルダ（開発環境ではリポジトリ直下）から見た相対パスで書く。
+    # 例: "eval_test/rgbcircle/input"。別PCでも bisim.exe のフォルダの下に同じ構成で置けば、
+    # パスを書き換えずに開ける（bisim の Sequence.load が APP_DIR 基準で読み替える）。
+    # 基準の外に作った場合は絶対パスになる。
+    # BC設定・モデル・Sim のフォルダは書かない → 各PC（EXE）の既定フォルダが使われる
+    inp = to_app_relative(in_dir, app_dir_arg)
+    folders = {"input_image": inp, "heatmap": inp, "output": to_app_relative(out_dir, app_dir_arg)}
     return {"sequence_name": SEQ_NAME, "folders": folders, "recipes": recipes}
 
 
@@ -120,6 +131,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=REPO / "eval_test" / "rgbcircle")
     ap.add_argument("--radius", type=int, default=70, help="円の半径 [px]（既定 70）")
+    ap.add_argument("--app-dir", type=Path, help=APP_DIR_HELP)
     a = ap.parse_args()
 
     base = a.out.resolve()
@@ -133,7 +145,7 @@ def main() -> None:
     write_png(in_dir / WHITE, np.full((H, W, 3), 255, np.uint8))
     write_movie(in_dir / MOVIE, pattern)
 
-    seq = build_sequence(in_dir, out_dir)
+    seq = build_sequence(in_dir, out_dir, a.app_dir)
     (base / f"{SEQ_NAME}.seq.json").write_text(
         json.dumps(seq, ensure_ascii=False, indent=2), encoding="utf-8")
 

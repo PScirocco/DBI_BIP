@@ -354,9 +354,243 @@ def test_save_sequence_name_matches_filename(monkey_qfd=None):
             win.save_sequence()
             assert win._seq_path.name == "renamed-B.seq.json"
             assert win._seq_path.exists() and not old.exists()
+            # 名前を付けて保存：元のファイルは残す（評価メモ 261021B-1）
+            prev = win._seq_path
+            QFileDialog.getSaveFileName = staticmethod(
+                lambda *a, **k: (str(d / "copy C.seq.json"), ""))
+            win.save_sequence(as_new=True)
+            assert win._seq_path.name == "copy-C.seq.json" and win._seq_path.exists()
+            assert prev.exists()                                    # 元の renamed-B も残る
+            assert win.sequence.sequence_name == "copy-C"
         finally:
             QFileDialog.getSaveFileName = orig
     _close(win)
+
+
+def test_pick_file_keeps_unapplied_edits():
+    """③で「参照…」からファイルを選んでも、未適用の入力（初期ストレス・レシピ名）が戻らない。
+    評価メモ 261021B-3：「前ステップ継承」を選んだ直後に画像を選ぶと、前ステップの画像が消えていた。"""
+    if not _pyside_ok():
+        return
+    from PySide6.QtWidgets import QFileDialog
+    from bisim.ui.i18n import t
+    win = _new_window()
+    orig = QFileDialog.getOpenFileName
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            win.sequence.sequence_name = "PICK"
+            win.sequence.folders["output"] = d
+            win.sequence.folders["input_image"] = str(_COMMON)
+            win.steps_tab._add()
+            win.steps_tab._add()
+            r1 = win.sequence.recipes[0]
+            r1.input_image = _MOVIE
+            # 前ステップの出力（動画）を置いておく → 「前ステップの画像」に出る
+            import shutil
+            from bisim import naming
+            shutil.copy(_COMMON / _MOVIE,
+                        Path(d) / naming.output_name("PICK", "01", r1.recipe_name, "movie", ext="mp4"))
+            win.steps_tab._select_row(1)
+            cfg = win.config_tab
+            cfg.ed_name.setText("eval-A")                    # 未適用
+            cfg.cmb_init.setCurrentIndex(1)                  # 前ステップ継承（未適用）
+            assert cfg.pv_prev._pixmap is not None           # 前ステップの画像が出ている
+            QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(_COMMON / _STILL), ""))
+            cfg._pick_file("input_image")
+            assert win.sequence.recipes[1].input_image == _STILL
+            assert cfg.cmb_init.currentIndex() == 1          # 初期ストレスは戻らない
+            assert cfg.ed_name.text() == "eval-A"            # レシピ名も戻らない
+            assert cfg.pv_prev._pixmap is not None           # 前ステップの画像も消えない
+            assert win.steps_tab.table.item(1, 4).text() == _STILL   # ②の一覧には反映
+            _close(win)
+    finally:
+        QFileDialog.getOpenFileName = orig
+
+
+def test_prev_step_preview_refreshes_when_config_tab_shown():
+    """前ステップを実行した後、③タブに切り替えると「前ステップの画像」が表示される
+    （以前は「未実行です」のまま残っていた）。未適用の入力は消えない。"""
+    if not _pyside_ok():
+        return
+    import shutil
+    from bisim import naming
+    from bisim.ui.i18n import t
+    win = _new_window()
+    with tempfile.TemporaryDirectory() as d:
+        win.sequence.sequence_name = "SHOW"
+        win.sequence.folders["output"] = d
+        win.sequence.folders["input_image"] = str(_COMMON)
+        win.steps_tab._add()
+        win.steps_tab._add()
+        r1 = win.sequence.recipes[0]
+        win.steps_tab._select_row(1)
+        cfg = win.config_tab
+        cfg.cmb_init.setCurrentIndex(1)                          # 前ステップ継承（未適用）
+        cfg.ed_name.setText("eval-B")                            # 未適用
+        assert cfg.pv_prev._pixmap is None                       # 前ステップ未実行
+        win.tabs.setCurrentWidget(win.run_tab)
+        _app().processEvents()
+        # 前ステップの実行が終わって出力ができた状態
+        shutil.copy(_COMMON / _MOVIE,
+                    Path(d) / naming.output_name("SHOW", "01", r1.recipe_name, "movie", ext="mp4"))
+        win.tabs.setCurrentWidget(win.config_tab)                # ③へ切り替えるだけ
+        _app().processEvents()
+        assert cfg.pv_prev._pixmap is not None                   # 表示される
+        assert cfg.cmb_init.currentIndex() == 1 and cfg.ed_name.text() == "eval-B"
+        _close(win)
+
+
+def test_stat_map_scale_minmax_toggle():
+    """累積時間マップは「0〜面内最大」（従来・既定）と「面内最小〜面内最大」を切り替えられる
+    （Excel No.9／10/15 MTG 指摘4。2026-10-23）。輝度残存率マップには切替が無い。"""
+    if not _pyside_ok():
+        return
+    import numpy as np
+    from bisim.ui.i18n import t
+    from bisim.ui.main_window import ResultEntry
+    win = _new_window()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            # 前ステップから引き継いで全面が 2.0 底上げされ、その上に 2.0〜3.0 のムラがある想定
+            a = np.array([[2.0, 2.5], [3.0, 2.0]])
+            outputs = {}
+            for c in "rgb":
+                np.savetxt(d / f"stat_{c}.csv", a, delimiter=",")
+                np.savetxt(d / f"deg_{c}.csv", np.array([[1.0, 0.5], [1.0, 1.0]]), delimiter=",")
+                outputs[f"stat_{c}"], outputs[f"deg_{c}"] = d / f"stat_{c}.csv", d / f"deg_{c}.csv"
+            win.results[1] = ResultEntry(nn=1, recipe_name="x", is_movie=False, outputs=outputs)
+            win.results_tab.add_result(1)
+            vs, vd = win.results_tab.view_stat, win.results_tab.view_deg
+            assert not vd.cmb_scale.isVisibleTo(vd)              # 輝度残存率マップには無い
+            assert vs.scale_key() == "zero"                      # 既定は従来どおり
+            cap = {}
+            vs.canvas.show_channel = lambda arr, ch, title="": cap.update(arr=arr.copy(), title=title)
+            vs.cmb_ch.setCurrentIndex(0)
+            vs.reload()
+            assert np.allclose(cap["arr"], 1.0 - a / 3.0)        # 0〜最大：最小の画素も暗め（1-2/3）
+            vs.cmb_scale.setCurrentIndex(1)                      # 面内最小〜最大に切替（自動で再描画）
+            assert vs.scale_key() == "minmax"
+            assert np.allclose(cap["arr"], 1.0 - (a - 2.0) / 1.0)  # 最小→白(1)、最大→黒(0)
+            assert cap["arr"][0, 0] == 1.0 and cap["arr"][1, 0] == 0.0
+            assert "2" in cap["title"] and "3" in cap["title"]
+            # 面内が一様なら全面白（0 割りしない）
+            assert np.all(vs._norm(np.full((2, 2), 5.0), 5.0, 5.0) == 1.0)
+            # RGB 合成も各色ごとの面内最小〜最大
+            vs.cmb_ch.setCurrentIndex(3)
+            vs.canvas.show_rgb = lambda rgb, title="": cap.update(rgb=rgb.copy(), title=title)
+            vs.reload()
+            assert cap["rgb"][0, 0, 0] == 1.0 and cap["rgb"][1, 0, 2] == 0.0
+            assert cap["title"].count("2–3") == 3
+            # 言語を切り替えても選択は保たれる
+            from bisim.ui import i18n
+            i18n.set_lang("ja")
+            assert vs.scale_key() == "minmax" and vs.cmb_scale.currentText() == t("map.scale.minmax")
+            i18n.set_lang("en")
+    finally:
+        _close(win)
+
+
+def test_editing_locked_while_running():
+    """実行中（一時停止中を含む）は ①②③タブとファイル操作が使えない。終われば戻る（2026-10-22）。"""
+    if not _pyside_ok():
+        return
+    win = _new_window()
+    win._max_frames = 3
+    with tempfile.TemporaryDirectory() as d:
+        win.sequence.sequence_name = "LOCK"
+        win.sequence.folders.update(output=d, input_image=str(_COMMON), heatmap=str(_COMMON))
+        win.sequence.recipes = [_movie_recipe("aging01")]
+        win.steps_changed()
+        tabs = win.tabs
+        idx = [tabs.indexOf(w) for w in (win.folders_tab, win.steps_tab, win.config_tab)]
+        acts = (win.act_open, win.act_save, win.act_save_as, win.act_recipe_load, win.act_recipe_save)
+        assert all(tabs.isTabEnabled(i) for i in idx) and all(a.isEnabled() for a in acts)
+        win.run_steps("all")
+        # 終了の通知はイベントループで届くので、ここではまだ実行中扱い
+        assert not any(tabs.isTabEnabled(i) for i in idx)
+        assert not any(a.isEnabled() for a in acts)
+        assert tabs.isTabEnabled(tabs.indexOf(win.run_tab))
+        assert tabs.isTabEnabled(tabs.indexOf(win.results_tab))
+        _wait_idle(win)
+        assert all(tabs.isTabEnabled(i) for i in idx) and all(a.isEnabled() for a in acts)
+        _close(win)
+
+
+def test_reordering_steps_with_stop_state_asks_and_discards():
+    """停止中のステップがあるときに②で削除・複製・並べ替えをすると確認が出る。
+    「いいえ」なら何もしない。「はい」なら停止状態（と _stops/ の実体）を破棄して続ける（2026-10-22）。"""
+    if not _pyside_ok():
+        return
+    from PySide6.QtWidgets import QMessageBox
+    from bisim.model import Recipe, StopState
+    win = _new_window()
+    orig_q = QMessageBox.question
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            seq_path = Path(d) / "S.seq.json"
+            win._seq_path = seq_path
+            win.sequence.folders["output"] = d
+            win.sequence.recipes = [Recipe(recipe_name="first", input_image=_MOVIE),
+                                    Recipe(recipe_name="second", input_image=_MOVIE)]
+            win.steps_changed()
+            ckpt = Path(d) / "_stops" / "S_02_second"
+            ckpt.mkdir(parents=True)
+            (ckpt / "stat_r.csv").write_text("0")
+            win._set_stop(2, StopState(recipe_name="second", frames_done=3, frames_total=10,
+                                       aging_seconds=1.0, is_movie=True, timestamp="261022-1000",
+                                       dir="_stops/S_02_second"))
+            win.steps_tab._select_row(0)
+
+            QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.StandardButton.No)
+            win.steps_tab._del()
+            assert [r.recipe_name for r in win.sequence.recipes] == ["first", "second"]   # 何もしない
+            assert 2 in win._stopped_states and ckpt.exists()
+            win.steps_tab._move(1)
+            assert [r.recipe_name for r in win.sequence.recipes] == ["first", "second"]
+
+            QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+            win.steps_tab._select_row(0)
+            win.steps_tab._del()
+            assert [r.recipe_name for r in win.sequence.recipes] == ["second"]
+            assert not win._stopped_states and not win.sequence.stops        # 停止状態は破棄
+            assert not ckpt.exists()                                         # 途中結果も削除
+            assert seq_path.exists()                                         # シーケンスにも反映
+            # 停止状態が無ければ確認は出ない
+            QMessageBox.question = staticmethod(lambda *a, **k: (_ for _ in ()).throw(AssertionError("確認が出た")))
+            win.steps_tab._select_row(0)
+            win.steps_tab._dup()
+            assert len(win.sequence.recipes) == 2
+            # 末尾への追加は既存ステップの番号を変えないので、停止中でも確認しない
+            win._set_stop(1, StopState(recipe_name="second", frames_done=1, frames_total=2,
+                                       aging_seconds=1.0, is_movie=True, timestamp="261022-1000",
+                                       dir="_stops/none"))
+            win.steps_tab._add()
+            assert len(win.sequence.recipes) == 3 and 1 in win._stopped_states
+            _close(win)
+    finally:
+        QMessageBox.question = orig_q
+
+
+def test_run_tab_time_labels_follow_language_switch():
+    """④の「計算時間」「Aging時間」も言語切替で描き直される。"""
+    if not _pyside_ok():
+        return
+    from bisim.ui import i18n
+    from bisim.ui.i18n import t
+    win = _new_window()
+    try:
+        win.run_tab.on_calc_time(12.5)
+        win.run_tab.on_aging_time("01h 00m 00s")
+        i18n.set_lang("ja")
+        assert win.run_tab.lbl_calc.text() == t("run.calc_time", s=12.5)
+        assert win.run_tab.lbl_aging.text() == t("run.aging_time", v="01h 00m 00s")
+        i18n.set_lang("en")
+        assert win.run_tab.lbl_calc.text() == t("run.calc_time", s=12.5)
+        assert "01h 00m 00s" in win.run_tab.lbl_aging.text()
+    finally:
+        i18n.set_lang("en")
+        _close(win)
 
 
 def test_sim_param_csv_roundtrip_via_config_tab():

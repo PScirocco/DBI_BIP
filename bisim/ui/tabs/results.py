@@ -23,6 +23,10 @@ from bisim.ui.i18n import t
 from bisim.ui.widgets import ImagePanel, MplCanvas
 
 CH_KEYS = ["r", "g", "b", "rgb"]
+# 累積時間マップの表示スケール（Excel No.9／10/15 MTG 指摘4。2026-10-23）
+#   zero  : 0 〜 面内最大（従来）。累積0＝白
+#   minmax: 面内最小 〜 面内最大。前ステップからの引き継ぎで全面が底上げされていても、ムラが見える
+SCALE_KEYS = ["zero", "minmax"]
 
 
 class _MapView(QWidget):
@@ -51,6 +55,17 @@ class _MapView(QWidget):
         self.b_reload.clicked.connect(self.reload)
         top.addWidget(self.lbl_view)
         top.addWidget(self.cmb_ch)
+        # 表示スケールの切替（累積時間マップだけ）
+        self.lbl_scale = QLabel(t("map.scale"))
+        self.cmb_scale = QComboBox()
+        self.cmb_scale.addItems([t(f"map.scale.{k}") for k in SCALE_KEYS])
+        self.cmb_scale.currentIndexChanged.connect(self.reload)
+        if kind == "stat":
+            top.addWidget(self.lbl_scale)
+            top.addWidget(self.cmb_scale)
+        else:
+            self.lbl_scale.hide()
+            self.cmb_scale.hide()
         top.addWidget(self.b_reload)
         top.addStretch(1)
         lay.addLayout(top)
@@ -101,19 +116,29 @@ class _MapView(QWidget):
         # stat は R/G/B それぞれ自分自身の最大値で正規化してから反転する。
         # チャンネル間で最大値の桁が大きく違うと、共通の最大値で揃えると他チャンネルが
         # 常に明るいまま埋もれて反転が見えにくくなるため（RGB合成で特に顕著だった）。
+        # 累積時間マップは「面内最小〜面内最大」でも表示できる（表示スケールの切替）
+        minmax = self.kind == "stat" and self.scale_key() == "minmax"
         if self.kind == "deg":
             vmax_of = {c: 1.0 for c in "rgb"}
+            vmin_of = {c: 0.0 for c in "rgb"}
         else:
             vmax_of = {c: (float(np.nanmax(raw[c])) or 1.0) for c in "rgb"}
+            vmin_of = {c: (float(np.nanmin(raw[c])) if minmax else 0.0) for c in "rgb"}
 
         def norm(c):
-            return self._norm(raw[c], vmax_of[c])
+            return self._norm(raw[c], vmax_of[c], vmin_of[c])
+
+        def rng_ch(c):
+            if self.kind == "deg":
+                return t("map.range01")
+            if minmax:
+                return t("map.rangev_mm", lo=f"{vmin_of[c]:.3g}", v=f"{vmax_of[c]:.3g}")
+            return t("map.rangev", v=f"{vmax_of[c]:.3g}")
 
         sel = self.cmb_ch.currentIndex()
         if sel < 3:
             c = "rgb"[sel]
-            rng = (t("map.range01") if self.kind == "deg"
-                   else t("map.rangev", v=f"{vmax_of[c]:.3g}"))
+            rng = rng_ch(c)
             self.canvas.show_channel(
                 norm(c), c, t("map.title.ch", idx=idx, label=label, ch=c.upper(), rng=rng))
             a = raw[c]
@@ -121,16 +146,28 @@ class _MapView(QWidget):
                                      mn=np.nanmin(a), mx=np.nanmax(a), me=np.nanmean(a)))
         else:
             rgb = np.stack([norm("r"), norm("g"), norm("b")], axis=-1)
-            rng = (t("map.range01") if self.kind == "deg"
-                   else t("map.rangev_rgb", r=f"{vmax_of['r']:.3g}",
-                          g=f"{vmax_of['g']:.3g}", b=f"{vmax_of['b']:.3g}"))
+            if self.kind == "deg":
+                rng = t("map.range01")
+            elif minmax:
+                rng = t("map.rangev_rgb_mm", **{c: f"{vmin_of[c]:.3g}–{vmax_of[c]:.3g}" for c in "rgb"})
+            else:
+                rng = t("map.rangev_rgb", r=f"{vmax_of['r']:.3g}",
+                        g=f"{vmax_of['g']:.3g}", b=f"{vmax_of['b']:.3g}")
             self.canvas.show_rgb(rgb, t("map.title.rgb", idx=idx, label=label, rng=rng))
             self.lbl_stats.setText(
                 " / ".join(f"{c.upper()} mean {np.nanmean(raw[c]):.4g}" for c in "rgb"))
 
-    def _norm(self, a: np.ndarray, vmax: float) -> np.ndarray:
-        """表示用の 0–1 正規化。stat は明暗反転（暗=累積大）、deg はそのまま（明=劣化少）。"""
-        v = np.clip(a / vmax, 0.0, 1.0)
+    def scale_key(self) -> str:
+        """累積時間マップの表示スケール（"zero" | "minmax"）。"""
+        return SCALE_KEYS[max(self.cmb_scale.currentIndex(), 0)]
+
+    def _norm(self, a: np.ndarray, vmax: float, vmin: float = 0.0) -> np.ndarray:
+        """表示用の 0–1 正規化（vmin→0、vmax→1）。stat は明暗反転（暗=累積大）、deg はそのまま（明=劣化少）。
+
+        面内が一様（vmax == vmin）のときは全面 0（stat は反転して白）。
+        """
+        span = vmax - vmin
+        v = np.clip((a - vmin) / span, 0.0, 1.0) if span > 0 else np.zeros_like(a, dtype=float)
         return (1.0 - v) if self.kind == "stat" else v
 
     def retranslate(self):
@@ -142,6 +179,13 @@ class _MapView(QWidget):
         self.cmb_ch.addItems([t(f"map.ch.{k}") for k in CH_KEYS])
         self.cmb_ch.setCurrentIndex(max(cur, 0))
         self.cmb_ch.blockSignals(False)
+        self.lbl_scale.setText(t("map.scale"))
+        cur_s = self.cmb_scale.currentIndex()
+        self.cmb_scale.blockSignals(True)
+        self.cmb_scale.clear()
+        self.cmb_scale.addItems([t(f"map.scale.{k}") for k in SCALE_KEYS])
+        self.cmb_scale.setCurrentIndex(max(cur_s, 0))
+        self.cmb_scale.blockSignals(False)
         self.lbl_hover.setText(t("map.hover.none"))
         self.reload()
 
