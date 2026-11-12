@@ -1,0 +1,33 @@
+---- Load files ----
+BC setting file: ./dbi_conf/bcsetting.csv
+Degradation parameter -Master Model: ./dbi_conf/degparam_mm.csv
+Degradation parameter -Sub Model: ./dbi_conf/degparam_sm.csv
+Sim condition setting file: ./dbi_input/simconf_2000_test_tmp60.csv
+ini_en: 1
+---- Target DBV check ----
+2000.0 -> DBV_NIT_EFF=2000.0
+---- Band Data Extraction ----
+Extracted Band [BC0]: Band1, [BC1]: Band2, [BC2]: Band3
+GI_LUT extraction finished. Peak current extraction started.
+ Extracted Peak Current_R (BC0,1,2): [2.04545, 1.0, 0.54545]
+ Extracted Peak Current_G (BC0,1,2): [2.04545, 1.0, 0.54545]
+ Extracted Peak Current_B (BC0,1,2): [2.04545, 1.0, 0.54545]
+Peak current extraction finished. Peak lum. extraction started.
+ Extracted Peak Lum. (BC0,1,2,BC0 at APL0.2): [6500.0, 2200.0, 1200.0, 4500.0]
+Peak lum. extraction finished. Duty extraction started.
+ Extracted Duty (BC1,2): [0.968, 0.968]
+Duty extraction finished. Deg 2D_Lut extraction started.
+ Extracted Deg 2D_LUT of BC1: Band2
+ Extracted Deg 2D_LUT of BC2: Band3
+Deg 2D_Lut extraction finished. Input image data is checking..
+---- Basic Info of Input Img ----
+Load files: ./dbi_common/eval_img2.png
+Load files: ./dbi_common/eval_img_ht2.png
+width:480, height:270
+process type: img
+Aging period(sec.): 1.0
+-- start processing --
+Previously accumulated stress data is used to start the simulation.
+Degradation calc. finished. Update the degradation ratio and the accumulated stress.
+Output files. Suffix No.: 11
+Normal End
