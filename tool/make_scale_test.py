@@ -32,8 +32,10 @@ from pathlib import Path
 
 import numpy as np
 
-REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "tools"))
+# bisim 本体（bisim/・source/・eval_test/）は tool/ の横の bisim2/ にある
+REPO = Path(__file__).resolve().parent.parent / "bisim2"
+TOOL_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOL_DIR))
 sys.path.insert(0, str(REPO))
 from make_rgbcircle_test import (  # noqa: E402
     H, MOVIE, W, WHITE, recipe, write_movie, write_png,

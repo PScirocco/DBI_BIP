@@ -19,10 +19,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+# bisim 本体（bisim/・source/・eval_test/）は tool/ の横の bisim2/ にある
+REPO = Path(__file__).resolve().parent.parent / "bisim2"
 
 APP_DIR_HELP = ("相対パスの基準にするフォルダ＝bisim.exe のフォルダ"
-                "（既定：リポジトリ直下。開発環境の python -m bisim と同じ）")
+                "（既定：bisim2 フォルダ。開発環境の python -m bisim と同じ）")
 
 
 def load_sequence(path) -> tuple:
@@ -34,7 +35,7 @@ def load_sequence(path) -> tuple:
 
 
 def app_dir(arg=None) -> Path:
-    """相対パスの基準（``--app-dir`` の値。無ければリポジトリ直下）。"""
+    """相対パスの基準（``--app-dir`` の値。無ければ bisim2 フォルダ）。"""
     return Path(arg).resolve() if arg else REPO
 
 

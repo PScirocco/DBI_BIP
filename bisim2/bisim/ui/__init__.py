@@ -1,6 +1,6 @@
 """bisim.ui — 本番GUI（PySide6、5タブ）
 
-`docs/GUI仕様.md` 2章の構成。エントリは :func:`run`（``python -m bisim`` から呼ばれる）。
+`doc/GUI仕様.md` 2章の構成。エントリは :func:`run`（``python -m bisim`` から呼ばれる）。
 UI シェルは :mod:`bisim.ui.main_window`、各タブは :mod:`bisim.ui.tabs`。
 """
 from __future__ import annotations

@@ -3,19 +3,19 @@
 *.pyc
 
 # bisim ランタイム生成物
-/bisim_app.json
-/_log_BISim/
-/bisim_output/
+/bisim2/bisim_app.json
+/bisim2/_log_BISim/
+/bisim2/bisim_output/
 
 # PyInstaller（フェーズE）
-/build/
-/dist/
+/bisim2/build/
+/bisim2/dist/
 *.manifest
 
 # 評価用データ・評価結果（理論確認テスト一式、別PCでの実行結果。出力 CSV が大きいため管理しない）
-/eval_test/
-/eval_test_other-PC/
+/bisim2/eval_test/
+/bisim2/eval_test_other-PC/
 
 # 個人スケジュール・チーム共有資料（リポジトリでは管理しない）
-/schedule/
-/team/
+/doc/schedule/
+/material/team/

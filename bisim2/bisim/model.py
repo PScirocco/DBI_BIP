@@ -290,7 +290,7 @@ class Sequence:
         ``APP_DIR`` は EXE では bisim.exe のフォルダ、開発時はリポジトリ直下。
         シーケンスファイルには ``"eval_test/rgbcircle/input"`` のような相対パスも書けるので、
         別PCでも bisim.exe のフォルダの下に同じ構成でデータを置けば、パスを書き換えずに使える
-        （例：tools/make_rgbcircle_test.py が作るシーケンス）。絶対パスはそのまま。
+        （例：tool/make_rgbcircle_test.py が作るシーケンス）。絶対パスはそのまま。
         JSON に無いフォルダは、そのPC（EXE）の既定フォルダになる（``from_dict``）。
         保存時は絶対パスで書き出す。
         """

@@ -3,6 +3,10 @@
 `bisim/` の本番GUIを、Python 環境の無いPCでも動く **EXE** にして配布するための手順。
 フェーズE（T9）の成果物 `installer/` を使う。IP設計者への配布・社内試用を想定。
 
+> **2026-11-12 フォルダ再編後の読み替え**：この手順書の「リポジトリ直下」「リポジトリの `.venv`」は、
+> `Burn-In_Simv2\bisim2\`（`bisim/`・`source/`・`installer/`・`.venv` がある所）のこと。ビルドは `bisim2\` で実行し、
+> EXE は `bisim2\dist\BI-sim\` にできる。`git status` は `Burn-In_Simv2` のどこで打っても同じ。
+
 - 対象: Windows 10 / 11（64bit）
 - 所要時間: 初回 15〜30 分（依存DL含む）、2回目以降 3〜7 分
 - 必要環境: **社内ネットワーク接続**（pip が社内ミラー固定のため）

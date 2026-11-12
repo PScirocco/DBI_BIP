@@ -30,8 +30,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "tools"))
+# bisim 本体（bisim/・source/・eval_test/）は tool/ の横の bisim2/ にある
+REPO = Path(__file__).resolve().parent.parent / "bisim2"
+TOOL_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOL_DIR))
 from _seqpaths import APP_DIR_HELP, display_path, load_sequence, resolve_folder  # noqa: E402
 FONT = "Meiryo UI"
 

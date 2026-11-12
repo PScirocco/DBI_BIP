@@ -44,10 +44,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-REPO = Path(__file__).resolve().parent.parent
+# bisim 本体（bisim/・source/・eval_test/）は tool/ の横の bisim2/ にある
+REPO = Path(__file__).resolve().parent.parent / "bisim2"
+TOOL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
 from bisim import naming  # noqa: E402  （出力ファイル名の規則だけ借りる）
-sys.path.insert(0, str(REPO / "tools"))
+sys.path.insert(0, str(TOOL_DIR))
 from _seqpaths import APP_DIR_HELP, load_sequence, resolve_folder  # noqa: E402
 
 COLORS = "rgb"

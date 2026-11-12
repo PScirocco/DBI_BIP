@@ -38,8 +38,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "tools"))
+# bisim 本体（bisim/・source/・eval_test/）は tool/ の横の bisim2/ にある
+REPO = Path(__file__).resolve().parent.parent / "bisim2"
+TOOL_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOL_DIR))
 sys.path.insert(0, str(REPO))
 from overlay_rgb_circles import make_pattern  # noqa: E402
 from _seqpaths import APP_DIR_HELP, to_app_relative  # noqa: E402
