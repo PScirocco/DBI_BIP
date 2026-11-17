@@ -491,6 +491,207 @@ def burn_in_core (
         del lum_r, lum_g, lum_b
     return rtn_code
 
+def burn_in_band_extract (bc_dict, degparam_sm_dict, simconf_dict) :
+    """ Band間補間用Dataの抽出 (burn_in()内の "Target DBV check" ～ "Deg 2D_Lut extraction" の処理を関数として切り出したもの)
+
+    2026-11-12 追加(bisim側): burn_in()と同一の処理．burn_in()は変更せずにそのまま残している．
+    呼び出し側でフレームループを回す場合(GUI版 bisim等)に，burn_in_core()に渡すBand間補間用Dataを
+    1回だけ作成する目的で使用する．入力は設定値(BC settings, Sub Model, Sim condition)のみで，画像には依存しない．
+
+    Args:
+        bc_dict(dict([str, Any])):              load_bcset()の出力
+        degparam_sm_dict(dict([str, Any])):     load_degparam_sm()の出力
+        simconf_dict(dict([str, Any])):         load_simconf()の出力
+
+    Returns:
+        int:                                    0:正常終了，-1:異常終了
+        dict([str, Any]):                       burn_in_core()の同名引数に渡すData
+                                                (gui_lut_extract_r,g,b / curr_bc_extract_r,g,b / dbv_nit_bc_extract / duty_bc_extract /
+                                                 deg_2d_bc_extract_r,g,b / dbv_nit_eff)
+        str:                                    log (burn_in()が出力するlogの該当部分と同じ内容)
+    """
+    band_dict = {}
+    log = ""
+    try :
+        log += f'---- Target DBV check ----' + "\n"
+
+        # DBV_NIT Clip(上限・下限値Clip), 有効DBV値(dvb_nit_eff) 生成
+        idx_HBM = len(bc_dict["DBV_NIT_DPK"])   # 通常(非DPKモード)のMax Band調査(=HBM)
+        if (simconf_dict["DPK_ON"] == 1) and (simconf_dict["DBV_NIT"] >= bc_dict["DBV_NIT_DPK"][0]) :
+            dbv_nit_eff = bc_dict["DBV_NIT_DPK"][0] # 上限Clip (DPKモード時)
+            log += f'DPK Mode: ON, DBV_NIT={str(simconf_dict["DBV_NIT"])} -> DBV_NIT_EFF={str(dbv_nit_eff)}' + "\n"
+
+        elif (simconf_dict["DPK_ON"] == 0) and (simconf_dict["DBV_NIT"] > bc_dict["DBV_NIT_BC"][idx_HBM]) :
+            dbv_nit_eff = bc_dict["DBV_NIT_BC"][idx_HBM] # 上限Clip (非DPKモード時)
+            log += f'DPK Mode: OFF, DBV_NIT={str(simconf_dict["DBV_NIT"])} -> DBV_NIT_EFF={str(dbv_nit_eff)}' + "\n"
+
+        elif simconf_dict["DBV_NIT"] < bc_dict["DBV_NIT_BC"][-1] :   # 下限Clip
+            dbv_nit_eff = bc_dict["DBV_NIT_BC"][-1]
+            log += f'DBV_NIT={str(simconf_dict["DBV_NIT"])} -> DBV_NIT_EFF={str(dbv_nit_eff)}' + "\n"
+
+        else :
+            dbv_nit_eff = simconf_dict["DBV_NIT"]
+            log += f'{str(simconf_dict["DBV_NIT"])} -> DBV_NIT_EFF={str(dbv_nit_eff)}' + "\n"
+
+        log += f'---- Band Data Extraction ----' + "\n"
+
+        # BC番号(BAND番号)チェック(idx_bc_upp, idx_bc_lwr, upp: 高輝度側 Band)
+        arr_desc = np.array(bc_dict["DBV_NIT_BC"][idx_HBM:]) #DBVは降順配列の為，符号反転により昇順に変更
+        idx_bc_lwr = np.searchsorted( -1.0 * arr_desc, -1.0 * dbv_nit_eff)
+        if idx_bc_lwr == 0 : idx_bc_lwr = 1 + idx_HBM
+        elif idx_bc_lwr == len(arr_desc) : idx_bc_lwr = len(arr_desc) - 1 + idx_HBM
+        else : idx_bc_lwr += idx_HBM
+
+        idx_bc_upp = idx_bc_lwr - 1
+
+        # Band間補間用データ抽出　：　電流(gi_lut) --------------------------------------------------------------
+        # bc_upp/lwrのidxを参考に，gi_lut0, gu_lut1, gu_lut2 を抽出 (upp -> lut1, lwr -> lut2)
+        # BC0
+        if (simconf_dict["DPK_ON"] == 1) and (dbv_nit_eff >= bc_dict["DBV_NIT_DPK"][1]) :
+            idx_bc0 = 0
+            gi_lut0_r = bc_dict["GI_LUT_GRY_BC_R"][:,0]
+            gi_lut0_g = bc_dict["GI_LUT_GRY_BC_G"][:,0]
+            gi_lut0_b = bc_dict["GI_LUT_GRY_BC_B"][:,0]
+        else :
+            idx_bc0 = 1
+            gi_lut0_r = bc_dict["GI_LUT_GRY_BC_R"][:,1]
+            gi_lut0_g = bc_dict["GI_LUT_GRY_BC_G"][:,1]
+            gi_lut0_b = bc_dict["GI_LUT_GRY_BC_B"][:,1]
+        # BC1
+        gi_lut1_r = bc_dict["GI_LUT_GRY_BC_R"][:, int(idx_bc_upp)]
+        gi_lut1_g = bc_dict["GI_LUT_GRY_BC_G"][:, int(idx_bc_upp)]
+        gi_lut1_b = bc_dict["GI_LUT_GRY_BC_B"][:, int(idx_bc_upp)]
+        # BC2
+        gi_lut2_r = bc_dict["GI_LUT_GRY_BC_R"][:, int(idx_bc_lwr)]
+        gi_lut2_g = bc_dict["GI_LUT_GRY_BC_G"][:, int(idx_bc_lwr)]
+        gi_lut2_b = bc_dict["GI_LUT_GRY_BC_B"][:, int(idx_bc_lwr)]
+
+        # gui_lut_extract = [gi_lut0, gu_lut1, gu_lut2]
+        gui_lut_extract_r = [gi_lut0_r, gi_lut1_r, gi_lut2_r]
+        gui_lut_extract_g = [gi_lut0_g, gi_lut1_g, gi_lut2_g]
+        gui_lut_extract_b = [gi_lut0_b, gi_lut1_b, gi_lut2_b]
+
+        log += f'Extracted Band [BC0]: Band{str(idx_bc0)}, [BC1]: Band{str(idx_bc_upp)}, [BC2]: Band{str(idx_bc_lwr)}' + "\n"
+        log += f'GI_LUT extraction finished. Peak current extraction started.' + "\n"
+
+        # Band間補間用データ抽出　：　Peak電流 --------------------------------------------------------------
+        # bc_upp/lwrのidxを参考に，curr_bc0, curr_bc1, curr_bc2を抽出
+        # BC0
+        if (simconf_dict["DPK_ON"] == 1) and (dbv_nit_eff >= bc_dict["DBV_NIT_DPK"][1]) :
+            curr_bc0_r = bc_dict["CURR_BC_R"][0]
+            curr_bc0_g = bc_dict["CURR_BC_G"][0]
+            curr_bc0_b = bc_dict["CURR_BC_B"][0]
+        else :
+            curr_bc0_r = bc_dict["CURR_BC_R"][1]
+            curr_bc0_g = bc_dict["CURR_BC_G"][1]
+            curr_bc0_b = bc_dict["CURR_BC_B"][1]
+        # BC1
+        curr_bc1_r = bc_dict["CURR_BC_R"][int(idx_bc_upp)]
+        curr_bc1_g = bc_dict["CURR_BC_G"][int(idx_bc_upp)]
+        curr_bc1_b = bc_dict["CURR_BC_B"][int(idx_bc_upp)]
+        # BC2
+        curr_bc2_r = bc_dict["CURR_BC_R"][int(idx_bc_lwr)]
+        curr_bc2_g = bc_dict["CURR_BC_G"][int(idx_bc_lwr)]
+        curr_bc2_b = bc_dict["CURR_BC_B"][int(idx_bc_lwr)]
+
+        # curr_bc_extract = [curr_bc0, curr_bc1, curr_bc2]
+        curr_bc_extract_r = [curr_bc0_r, curr_bc1_r, curr_bc2_r]
+        curr_bc_extract_g = [curr_bc0_g, curr_bc1_g, curr_bc2_g]
+        curr_bc_extract_b = [curr_bc0_b, curr_bc1_b, curr_bc2_b]
+
+        log += f' Extracted Peak Current_R (BC0,1,2): [{", ".join(str(i) for i in curr_bc_extract_r)}]' + "\n"
+        log += f' Extracted Peak Current_G (BC0,1,2): [{", ".join(str(i) for i in curr_bc_extract_g)}]' + "\n"
+        log += f' Extracted Peak Current_B (BC0,1,2): [{", ".join(str(i) for i in curr_bc_extract_b)}]' + "\n"
+        log += f'Peak current extraction finished. Peak lum. extraction started.' + "\n"
+
+        # Band間補間用データ抽出　：　Peak輝度 --------------------------------------------------------------
+        # bc_upp/lwrのidxを参考に，dvb_nit_bc0, dvb_nit_bc1, dvb_nit_bc2, dbv_nit_dpkを抽出
+        # BC0
+        if (simconf_dict["DPK_ON"] == 1) and (dbv_nit_eff >= bc_dict["DBV_NIT_DPK"][1]) :
+            dbv_nit_bc0 = bc_dict["DBV_NIT_BC"][0]
+            dbv_nit_dpk = bc_dict["DBV_NIT_DPK"][0]
+        else :
+            dbv_nit_bc0 = bc_dict["DBV_NIT_BC"][1]
+            dbv_nit_dpk = bc_dict["DBV_NIT_DPK"][1]
+        # BC1,2
+        dbv_nit_bc1 = bc_dict["DBV_NIT_BC"][int(idx_bc_upp)]
+        dbv_nit_bc2 = bc_dict["DBV_NIT_BC"][int(idx_bc_lwr)]
+
+        # dvb_nit_bc_extract = [dvb_nit_bc0, dvb_nit_bc1, dvb_nit_bc2, dbv_nit_dpk]
+        dbv_nit_bc_extract = [dbv_nit_bc0, dbv_nit_bc1, dbv_nit_bc2, dbv_nit_dpk]
+
+        log += f' Extracted Peak Lum. (BC0,1,2,BC0 at APL{str(bc_dict["APL_DPK"])}): [{", ".join(str(i) for i in dbv_nit_bc_extract)}]' + "\n"
+        log += f'Peak lum. extraction finished. Duty extraction started.' + "\n"
+
+        # Band間補間用データ抽出　：　Duty --------------------------------------------------------------
+        # bc_upp/lwrのidxを参考に，duty_bc1, duty_bc2を抽出
+        # BC1,2 (BC0はBC1と常に同じDutyの為不要)
+        duty_bc1 = bc_dict["DUTY_BC"][int(idx_bc_upp)]
+        duty_bc2 = bc_dict["DUTY_BC"][int(idx_bc_lwr)]
+
+        # duty_bc_extract = [duty_bc1, duty_bc2]
+        duty_bc_extract = [duty_bc1, duty_bc2]
+
+        log += f' Extracted Duty (BC1,2): [{", ".join(str(i) for i in duty_bc_extract)}]' + "\n"
+        log += f'Duty extraction finished. Deg 2D_Lut extraction started.' + "\n"
+
+        # Band間補間用データ抽出　：　劣化率(残存率) 2D-Lut ------------------------------------------------
+        # bc_upp/lwrのidxを参考に，deg_2d_bc1, deg_2d_bc2を抽出
+        if (simconf_dict["DPK_ON"] == 1) and (dbv_nit_eff >= bc_dict["DBV_NIT_DPK"][1]) :
+            idx_bc1 = 0
+            deg_2d_bc1_r = degparam_sm_dict["DEG_2D_BC_IxDEG_R"][0,:,:] # DPKモード時BC0をBC1として出力 (APL1)
+            deg_2d_bc1_g = degparam_sm_dict["DEG_2D_BC_IxDEG_G"][0,:,:]
+            deg_2d_bc1_b = degparam_sm_dict["DEG_2D_BC_IxDEG_B"][0,:,:]
+            idx_bc2 = idx_HBM
+            deg_2d_bc2_r = degparam_sm_dict["DEG_2D_BC_IxDEG_R"][idx_HBM,:,:]
+            deg_2d_bc2_g = degparam_sm_dict["DEG_2D_BC_IxDEG_G"][idx_HBM,:,:]
+            deg_2d_bc2_b = degparam_sm_dict["DEG_2D_BC_IxDEG_B"][idx_HBM,:,:]
+
+        elif (simconf_dict["DPK_ON"] == 1) and (dbv_nit_eff >= bc_dict["DBV_NIT_BC"][2]) :
+            idx_bc1 = 1
+            deg_2d_bc1_r = degparam_sm_dict["DEG_2D_BC_IxDEG_R"][1,:,:] # DPKモード時BC0をBC1として出力 (APL2)
+            deg_2d_bc1_g = degparam_sm_dict["DEG_2D_BC_IxDEG_G"][1,:,:]
+            deg_2d_bc1_b = degparam_sm_dict["DEG_2D_BC_IxDEG_B"][1,:,:]
+            idx_bc2 = idx_HBM
+            deg_2d_bc2_r = degparam_sm_dict["DEG_2D_BC_IxDEG_R"][idx_HBM,:,:]
+            deg_2d_bc2_g = degparam_sm_dict["DEG_2D_BC_IxDEG_G"][idx_HBM,:,:]
+            deg_2d_bc2_b = degparam_sm_dict["DEG_2D_BC_IxDEG_B"][idx_HBM,:,:]
+
+        else :
+            idx_bc1 = int(idx_bc_upp)
+            deg_2d_bc1_r = degparam_sm_dict["DEG_2D_BC_IxDEG_R"][int(idx_bc_upp),:,:] # 非DPKモード(通常)時はBC1を出力
+            deg_2d_bc1_g = degparam_sm_dict["DEG_2D_BC_IxDEG_G"][int(idx_bc_upp),:,:]
+            deg_2d_bc1_b = degparam_sm_dict["DEG_2D_BC_IxDEG_B"][int(idx_bc_upp),:,:]
+            idx_bc2 = int(idx_bc_lwr)
+            deg_2d_bc2_r = degparam_sm_dict["DEG_2D_BC_IxDEG_R"][int(idx_bc_lwr),:,:]
+            deg_2d_bc2_g = degparam_sm_dict["DEG_2D_BC_IxDEG_G"][int(idx_bc_lwr),:,:]
+            deg_2d_bc2_b = degparam_sm_dict["DEG_2D_BC_IxDEG_B"][int(idx_bc_lwr),:,:]
+
+        # deg_2d_bc_extract = [deg_2d_bc1, deg_2d_bc2]
+        deg_2d_bc_extract_r = [deg_2d_bc1_r, deg_2d_bc2_r]
+        deg_2d_bc_extract_g = [deg_2d_bc1_g, deg_2d_bc2_g]
+        deg_2d_bc_extract_b = [deg_2d_bc1_b, deg_2d_bc2_b]
+
+        log += f' Extracted Deg 2D_LUT of BC1: Band{str(idx_bc1)}' + "\n"
+        log += f' Extracted Deg 2D_LUT of BC2: Band{str(idx_bc2)}' + "\n"
+        log += f'Deg 2D_Lut extraction finished.' + "\n"
+
+        # burn_in_core()の引数名に合わせて格納 (burn_in_core(..., **band_dict) で渡せる)
+        band_dict = {
+            "gui_lut_extract_r": gui_lut_extract_r, "gui_lut_extract_g": gui_lut_extract_g, "gui_lut_extract_b": gui_lut_extract_b,
+            "curr_bc_extract_r": curr_bc_extract_r, "curr_bc_extract_g": curr_bc_extract_g, "curr_bc_extract_b": curr_bc_extract_b,
+            "dbv_nit_bc_extract": dbv_nit_bc_extract, "duty_bc_extract": duty_bc_extract,
+            "deg_2d_bc_extract_r": deg_2d_bc_extract_r, "deg_2d_bc_extract_g": deg_2d_bc_extract_g, "deg_2d_bc_extract_b": deg_2d_bc_extract_b,
+            "dbv_nit_eff": dbv_nit_eff,
+        }
+    except :
+        rtn_code = -1
+        log += f'Band data extraction error' + "\n"
+    else :
+        rtn_code = 0
+
+    return rtn_code, band_dict, log
+
 ############################################## Main Body ##############################################
 def burn_in (
         path_img, path_htmap,
@@ -539,8 +740,19 @@ def burn_in (
         rtn_code_degparam_mm, degparam_mm_dict = com_info.load_degparam_mm(degparam_mm)
         rtn_code_degparam_sm, degparam_sm_dict = com_info.load_degparam_sm(degparam_sm)
         rtn_code_simconf, simconf_dict = com_info.load_simconf(simconf)
-        if rtn_code_bcset !=0 or rtn_code_degparam_mm != 0 or rtn_code_simconf :
+        # 2026-11-12 追加(bisim側): degparam_sm の読み込み失敗も検出し，失敗したファイルをlogに出力
+        if rtn_code_bcset != 0 or rtn_code_degparam_mm != 0 or rtn_code_degparam_sm != 0 or rtn_code_simconf != 0 :
             log += f'{"File Load error"}' + "\n"
+            if rtn_code_bcset != 0 :       log += f' BC setting file: {str(bcset)}' + "\n"
+            if rtn_code_degparam_mm != 0 : log += f' Degradation parameter -Master Model: {str(degparam_mm)}' + "\n"
+            if rtn_code_degparam_sm != 0 : log += f' Degradation parameter -Sub Model: {str(degparam_sm)}' + "\n"
+            if rtn_code_simconf != 0 :     log += f' Sim condition setting file: {str(simconf)}' + "\n"
+            raise Exception
+        # 2026-11-12 追加(bisim側): Sub ModelのBand数がBC settingのBand数(BC_BAND_NUM)と一致するか確認
+        sm_band_num = degparam_sm_dict["DEG_2D_BC_IxDEG_R"].shape[0]
+        if sm_band_num != bc_dict["BC_BAND_NUM"] :
+            log += f'{"File Load error"}' + "\n"
+            log += f' Band number mismatch: Sub Model={str(sm_band_num)}, BC setting(BC_BAND_NUM)={str(bc_dict["BC_BAND_NUM"])}' + "\n"
             raise Exception
 
         B0_r = degparam_mm_dict["B0_r"]

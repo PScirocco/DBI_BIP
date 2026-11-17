@@ -198,6 +198,12 @@ def load_degparam_sm (degparam_sm) :
             degparam_sm_dict["DEG_2D_BC_IxDEG_R"] = data_array_4d[:,:,0,:]
             degparam_sm_dict["DEG_2D_BC_IxDEG_G"] = data_array_4d[:,:,1,:]
             degparam_sm_dict["DEG_2D_BC_IxDEG_B"] = data_array_4d[:,:,2,:]
+
+            # 2026-11-12 追加(bisim側): Key名の欠落・Lut Data(数値部)が空の場合を読み込み失敗とする
+            # (従来はKey名の行が欠けてもエラーにならず，後段の劣化計算でKeyErrorとなっていた)
+            for key in ("DEG_2D_DEG_R", "DEG_2D_DEG_G", "DEG_2D_DEG_B", "DEG_2D_I_R", "DEG_2D_I_G", "DEG_2D_I_B") :
+                if key not in degparam_sm_dict : raise Exception
+            if bc_num < 1 : raise Exception
     except :
         rtn_code = -1
     else :
