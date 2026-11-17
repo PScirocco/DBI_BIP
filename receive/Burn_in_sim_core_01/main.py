@@ -52,6 +52,7 @@
     History :
         2026.07.31 暫定版新規作成              M.Matsui
         2026.11.10 機能追加し正式release       M.Matsui
+        2026.11.17 Sub Modelの劣化率(deg2)出力を追加 (bisim側で追加，省略可能引数のため従来の単独実行は変更なし)
 """
 
 import os.path
@@ -63,6 +64,7 @@ import load_com_info as com_info
 ######################################## Files  ############################################
 FILE_OUT_STAT = "stat"     # Output as $(idx)_$(FILE_OUT_STAT)_{R,G,B}.csv
 FILE_OUT_DEG  = "deg"      # Output as $(idx)_$(FILE_OUT_DEG)_{R,G,B}.csv
+FILE_OUT_DEG2 = "deg2"     # Output as $(idx)_$(FILE_OUT_DEG2)_{R,G,B}.csv  (2026-11-17 追加(bisim側))
 FILE_OUT_IMG  = "out_img"  # Output as $(idx)_$(FILE_OUT_IMG).{mp4,png}
 
 ######################################## Directory ############################################
@@ -204,7 +206,8 @@ def burn_in_core (
         curr_bc_extract_r=None, curr_bc_extract_g=None, curr_bc_extract_b=None,
         dbv_nit_bc_extract=None, duty_bc_extract=None,
         deg_2d_bc_extract_r=None, deg_2d_bc_extract_g=None, deg_2d_bc_extract_b=None,
-        dbv_nit_eff=None
+        dbv_nit_eff=None,
+        deg2_r=None, deg2_g=None, deg2_b=None
 ) :
     """ 累積時間から劣化率を計算し、その結果に基づき入力画像を劣化画像に更新します。同時に累積時間の更新を行います.
 
@@ -228,6 +231,8 @@ def burn_in_core (
         duty_bc_extract(list[float]) :              線形補間に用いるBandのDutyのList.　[BC1, BC2]　(BC0はBC1と同Dutyの為不要)
         deg_2d_bc_extract_r,g,b(list[np.ndarray]):  線形補間に用いるBandのDeg2D_LutのList [BC1, BC2] (DPKで内容変化．DPK=1:BC0,BC1 Lut, DPK=0:BC1,BC2 LutのDataが存在）
         dbv_nit_eff:                                Clip処理後のDBV_NIT設定値
+        deg2_r,g,b(np.ndarray):                     (省略可) Sub Modelの劣化率(残存率)Map(=deg2_interp_r,g,b)の出力先．画像と同サイズ(h,w), dtype=float
+                                                    (2026-11-17 追加(bisim側)．省略時(None)は出力しない)
 
     Returns:
         int:                                        0:正常終了，-1:異常終了
@@ -235,6 +240,7 @@ def burn_in_core (
     Side Effects:
         引数で渡されたstat_r, stat_g, stat_bの中身が直接更新されます（インプレイス処理）
         引数で渡されたimgの中身が直接更新されます（インプレイス処理）
+        引数でdeg2_r, deg2_g, deg2_bが渡された場合，その中身が今回のフレームのdeg2_interp_r,g,bで上書きされます（インプレイス処理）
     """
     try :
         N_r = degparam_mm_dict["N_r"]
@@ -453,6 +459,11 @@ def burn_in_core (
         else :
             deg2_interp_b[:] = deg2_interp_bc2_b + (deg2_interp_bc1_b - deg2_interp_bc2_b) * ((lemit_nit_eff - lemit_nit_bc2)/(lemit_nit_bc1 -lemit_nit_bc2))
         deg2_interp_b[deg2_interp_b < 0.0] = 0.0
+
+        # 2026-11-17 追加(bisim側): Sub Modelの劣化率(deg2)を呼び出し元に渡す (引数省略時は何もしない)
+        if deg2_r is not None : deg2_r[:] = deg2_interp_r
+        if deg2_g is not None : deg2_g[:] = deg2_interp_g
+        if deg2_b is not None : deg2_b[:] = deg2_interp_b
 
         # 劣化画像の生成
         lum_b[:] = (img[:, :, 0] / 255) ** 2.2 * deg_b * deg2_interp_b
@@ -730,6 +741,7 @@ def burn_in (
         以下のファイルが path_outputで設定したディレクトリに出力されます.出力時，各ファイルにはidxで設定したSuffixが付与されます．．
         idx_stat_r.csv, idx_stat_g.csv, idx_stat_b.csv
         idx_deg_r.csv,  idx_deg_g.csv,  idx_deg_b.csv
+        idx_deg2_r.csv, idx_deg2_g.csv, idx_deg2_b.csv (Sub Modelの劣化率．動画時は最終フレームの値) (2026-11-17 追加(bisim側))
         idx_out_img.png | idx_out_img.mp4 (静止画時:.png, 動画時:.mp4 )
         idx_log.txt
     """
@@ -979,6 +991,11 @@ def burn_in (
             stat_b = np.full((height, width),0.0, dtype = float)
             log += f'Start the simulation from an initial stress condition (accumulated stress = 0).' + "\n"
 
+        # 2026-11-17 追加(bisim側): Sub Modelの劣化率(deg2)Map (burn_in_coreがフレーム毎に上書き．動画時は最終フレームの値が残る)
+        deg2_r = np.full((height, width), 1.0, dtype=float)
+        deg2_g = np.full((height, width), 1.0, dtype=float)
+        deg2_b = np.full((height, width), 1.0, dtype=float)
+
         # 焼き付き画像生成
         if process_type == "mov" :
             # Output設定
@@ -1001,7 +1018,8 @@ def burn_in (
                         curr_bc_extract_r = curr_bc_extract_r, curr_bc_extract_g = curr_bc_extract_g, curr_bc_extract_b = curr_bc_extract_b,
                         dbv_nit_bc_extract = dbv_nit_bc_extract, duty_bc_extract = duty_bc_extract,
                         deg_2d_bc_extract_r = deg_2d_bc_extract_r, deg_2d_bc_extract_g = deg_2d_bc_extract_g, deg_2d_bc_extract_b = deg_2d_bc_extract_b,
-                        dbv_nit_eff = dbv_nit_eff
+                        dbv_nit_eff = dbv_nit_eff,
+                        deg2_r = deg2_r, deg2_g = deg2_g, deg2_b = deg2_b
                     )
 
                     if rtn_code_br_img_update != 0 : raise Exception
@@ -1027,7 +1045,8 @@ def burn_in (
                     curr_bc_extract_r=curr_bc_extract_r, curr_bc_extract_g=curr_bc_extract_g, curr_bc_extract_b=curr_bc_extract_b,
                     dbv_nit_bc_extract=dbv_nit_bc_extract, duty_bc_extract=duty_bc_extract,
                     deg_2d_bc_extract_r=deg_2d_bc_extract_r, deg_2d_bc_extract_g=deg_2d_bc_extract_g, deg_2d_bc_extract_b=deg_2d_bc_extract_b,
-                    dbv_nit_eff=dbv_nit_eff
+                    dbv_nit_eff=dbv_nit_eff,
+                    deg2_r=deg2_r, deg2_g=deg2_g, deg2_b=deg2_b
                 )
 
                 if rtn_code_br_img_update != 0 : raise Exception
@@ -1061,6 +1080,11 @@ def burn_in (
         np.savetxt(path_output_file_stat_b, stat_b[:], delimiter=",")
         np.savetxt(path_output_file_stat_g, stat_g[:], delimiter=",")
         np.savetxt(path_output_file_stat_r, stat_r[:], delimiter=",")
+
+        # 2026-11-17 追加(bisim側): Sub Modelの劣化率(deg2)出力
+        for c, deg2_c in (("b", deg2_b), ("g", deg2_g), ("r", deg2_r)) :
+            np.savetxt(path_output + "/" + str(idx) + "_" + FILE_OUT_DEG2 + "_" + c + ".csv", deg2_c, delimiter=",")
+        log += f'Sub Model degradation ratio (deg2) is output (movie: value of the last frame).' + "\n"
 
         log += f'Normal End' + "\n"
 

@@ -52,7 +52,13 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `material/AMOLED_Image_sticking_prevention_compensation_v01.pptx`（2018, Matsui） | DBI補正アルゴリズムの理論。劣化モデルの根拠 |
 | `material/Platform Concept for DBI & BIP development.pptx`（2026.07, Matsui & Isobe） | シミュレータ＋DBI/BIP評価プラットフォームの構想 |
 
-## 現在の状況（2026-11-12）
+## 現在の状況（2026-11-17）
+
+- **2026-11-17 フェーズF 進行中。手順・決定事項・松井さんへの確認事項は `doc/progress/261117_フェーズF_進め方と決定事項.md`**。
+  新コアの受領物は `receive/Burn_in_sim_core_01/`（`b771914`）。bisim 側で追加したもの（サブモデルの読み込み失敗検出、
+  `burn_in_band_extract`、`burn_in_core` の省略可能引数 `deg2_r/g/b` と `{idx}_deg2_{c}.csv` 出力）は `receive/` に入れて確認済み。
+  **bisim（`bisim2/source/`）はまだ旧コアのまま**。次は手順2（旧コアの結果を基準として保存）→ 手順4・5（作業計画を見せてから着手）
+- 松井さんとのコアの Q&A は `doc/Q&A/`（担当者の判断で commit しない。`.gitignore` には入れていないので `git status` に未追跡として出る）
 
 - **2026-11-12 `C:\Users\h84431495\LLM\DBI_BIP` から `C:\Users\h84431495\LLM\Burn-In_Simv2` に引っ越し、上の4フォルダ構成に再編。新セッションで再開**
   （フェーズF＝新コアの組み込み用。**新コアの受領物はまだ入っていない**。置き場所は担当者に聞く）。
