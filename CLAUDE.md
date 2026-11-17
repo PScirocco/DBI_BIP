@@ -57,7 +57,8 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 - **2026-11-17 フェーズF 進行中。手順・決定事項・松井さんへの確認事項は `doc/progress/261117_フェーズF_進め方と決定事項.md`**。
   新コアの受領物は `receive/Burn_in_sim_core_01/`（`b771914`）。bisim 側で追加したもの（サブモデルの読み込み失敗検出、
   `burn_in_band_extract`、`burn_in_core` の省略可能引数 `deg2_r/g/b` と `{idx}_deg2_{c}.csv` 出力）は `receive/` に入れて確認済み。
-  **bisim（`bisim2/source/`）はまだ旧コアのまま**。次は手順2（旧コアの結果を基準として保存）→ 手順4・5（作業計画を見せてから着手）
+  **bisim（`bisim2/source/`）はまだ旧コアのまま**。手順2（旧コアの基準データ）は済：`bisim2/eval_test/_baseline_oldcore_261117/`
+  （Git 管理外、`README.md` あり）＋タグ `oldcore-baseline-261117`。次は手順4・5（作業計画を見せてから着手）
 - 松井さんとのコアの Q&A は `doc/Q&A/`（担当者の判断で commit しない。`.gitignore` には入れていないので `git status` に未追跡として出る）
 
 - **2026-11-12 `C:\Users\h84431495\LLM\DBI_BIP` から `C:\Users\h84431495\LLM\Burn-In_Simv2` に引っ越し、上の4フォルダ構成に再編。新セッションで再開**
