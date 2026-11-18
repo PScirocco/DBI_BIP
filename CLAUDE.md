@@ -58,7 +58,9 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
   新コアの受領物は `receive/Burn_in_sim_core_01/`（`b771914`）。bisim 側で追加したもの（サブモデルの読み込み失敗検出、
   `burn_in_band_extract`、`burn_in_core` の省略可能引数 `deg2_r/g/b` と `{idx}_deg2_{c}.csv` 出力）は `receive/` に入れて確認済み。
   **bisim（`bisim2/source/`）はまだ旧コアのまま**。手順2（旧コアの基準データ）は済：`bisim2/eval_test/_baseline_oldcore_261117/`
-  （Git 管理外、`README.md` あり）＋タグ `oldcore-baseline-261117`。次は手順4・5（作業計画を見せてから着手）
+  （Git 管理外、`README.md` あり）＋タグ `oldcore-baseline-261117`。手順4〜7 の作業計画は了承済み（同資料）。
+  **次のセッションは手順4 から：引き継ぎは `doc/progress/261117_引き継ぎ資料.md`、開始プロンプトは `261117_次セッション開始プロンプト.md`**。
+  確認用スクリプトは `tool/phaseF/`（README あり）。セッションは区切りのよいところで分け、引き継ぎを準備する（担当者の指示 2026-11-17）
 - 松井さんとのコアの Q&A は `doc/Q&A/`（担当者の判断で commit しない。`.gitignore` には入れていないので `git status` に未追跡として出る）
 
 - **2026-11-12 `C:\Users\h84431495\LLM\DBI_BIP` から `C:\Users\h84431495\LLM\Burn-In_Simv2` に引っ越し、上の4フォルダ構成に再編。新セッションで再開**
