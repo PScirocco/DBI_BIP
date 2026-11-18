@@ -374,9 +374,46 @@ STR: dict[str, dict[str, str]] = {
     "map.stats.none": {"ja": "統計: ―", "en": "Stats: —"},
     "map.none": {"ja": "（結果なし）", "en": "(no results)"},
     "map.csv_fail": {"ja": "（CSV読込失敗）", "en": "(CSV load failed)"},
-    "map.label.deg": {"ja": "輝度残存率(1-劣化率)", "en": "lum. residual (1-degradation)"},
+    # 輝度残存率マップ：表示する量の切り替え（フェーズF 5-4）
+    "map.deg.mode": {"ja": "表示する量", "en": "Quantity"},
+    "map.deg.deg1": {"ja": "deg1（基準電流密度）", "en": "deg1 (ref. current density)"},
+    "map.deg.deg2": {"ja": "deg2（サブモデル）", "en": "deg2 (sub model)"},
+    "map.deg.deg12": {"ja": "deg1×deg2（画像にかけた値）", "en": "deg1×deg2 (applied to image)"},
+    "map.deg.no_deg2": {"ja": "この結果には deg2 がありません（フェーズF より前の停止結果）。deg2・deg1×deg2 は表示できません",
+                        "en": "This result has no deg2 (a stop result from before Phase F); "
+                              "deg2 and deg1×deg2 are not available."},
+    "map.label.deg1": {"ja": "輝度残存率 deg1（基準電流密度）", "en": "lum. residual deg1 (ref. current density)"},
+    "map.label.deg2": {"ja": "輝度残存率 deg2（サブモデル）", "en": "lum. residual deg2 (sub model)"},
+    "map.label.deg12": {"ja": "輝度残存率 deg1×deg2（画像にかけた値）",
+                        "en": "lum. residual deg1×deg2 (applied to image)"},
+    "map.note.deg1": {"ja": "deg1：基準電流密度での輝度残存率（1-劣化率）。別の画像の結果どうしの比較にはこれを使います",
+                      "en": "deg1: lum. residual (1-degradation) at the reference current density. "
+                            "Use this to compare results of different images."},
+    "map.note.deg2": {"ja": "deg2：サブモデルの輝度残存率（表示している画像の電流密度による分）。動画は最後のフレームの値",
+                      "en": "deg2: lum. residual from the sub model (due to the current density of the shown image). "
+                            "For a movie, the value at the last frame."},
+    "map.note.deg12": {"ja": "deg1×deg2：画像にかけた輝度残存率。Aging ステップでは最後のフレームで足されたストレスの分だけ、"
+                             "画像にかけた値とわずかにずれます（一致するのは PQ評価で A=0 のとき）",
+                       "en": "deg1×deg2: lum. residual applied to the image. In an Aging step it differs slightly "
+                             "from the applied value by the stress added in the last frame "
+                             "(they match for a PQ-evaluation step with A=0)."},
+    "map.note.black": {"ja": "黒の画素（最後に処理した入力フレームでその色が 0。R/G/B 合計 {n} 画素）は灰色で表示し、"
+                             "表示範囲と統計から除いています",
+                       "en": "Black pixels (value 0 in the last processed input frame; {n} in R/G/B total) "
+                             "are shown in gray and excluded from the range and statistics."},
+    "map.note.black_none": {"ja": "この結果には黒の画素の情報がありません（除かずに表示しています）",
+                            "en": "No black-pixel information for this result (shown as is)."},
+    "map.hover.black": {"ja": "（黒の画素）", "en": " (black pixel)"},
+    "map.stats.black": {"ja": "　（黒の画素 {n} 個を除く）", "en": "  (excluding {n} black pixels)"},
+    "map.degscale.unit": {"ja": "0 〜 1（1 超は 1）", "en": "0 to 1 (>1 shown as 1)"},
+    "map.degscale.minmax": {"ja": "面内最小 〜 面内最大", "en": "in-plane min to max"},
+    "map.deg.range_mm": {"ja": "面内最小〜最大で正規化: 明＝劣化少 ({lo} 〜 {v})",
+                         "en": "normalized (in-plane min to max): bright = less degraded ({lo} to {v})"},
+    "map.deg.range_rgb_mm": {"ja": "R/G/B各色毎に面内最小〜最大で正規化: 明＝劣化少（R {r}, G {g}, B {b}）",
+                             "en": "normalized (each of R/G/B by its in-plane min to max): "
+                                   "bright = less degraded (R {r}, G {g}, B {b})"},
     "map.label.stat": {"ja": "累積時間", "en": "accum. time"},
-    "map.range01": {"ja": "明＝劣化少 (0–1)", "en": "bright = less degraded (0-1)"},
+    "map.range01": {"ja": "明＝劣化少 (0–1、1 超は 1 として表示)", "en": "bright = less degraded (0-1, >1 shown as 1)"},
     "map.rangev": {"ja": "正規化・反転表示: 暗＝累積大 (max {v})",
                    "en": "normalized & inverted: dark = more accumulated (max {v})"},
     "map.rangev_rgb": {"ja": "正規化・反転表示（R/G/B各色毎に最大値で正規化）: 暗＝累積大"
@@ -392,9 +429,10 @@ STR: dict[str, dict[str, str]] = {
                                 "（R {r}, G {g}, B {b}）",
                           "en": "normalized (each of R/G/B by its own in-plane min to max) & inverted: "
                                 "dark = more accumulated (R {r}, G {g}, B {b})"},
-    "map.title.ch": {"ja": "#{idx} {label} {ch}  ({rng})", "en": "#{idx} {label} {ch}  ({rng})"},
-    "map.title.rgb": {"ja": "#{idx} {label} RGB合成  ({rng})",
-                      "en": "#{idx} {label} RGB composite  ({rng})"},
+    # 見出しは2行（1行目＝何のマップか、2行目＝表示範囲）。1行だと英語表示で左右が切れていた（10/28）
+    "map.title.ch": {"ja": "#{idx} {label} {ch}\n{rng}", "en": "#{idx} {label} {ch}\n{rng}"},
+    "map.title.rgb": {"ja": "#{idx} {label} RGB合成\n{rng}",
+                      "en": "#{idx} {label} RGB composite\n{rng}"},
     "map.hover.ch": {"ja": "カーソル: (x={x}, y={y})  {ch} = {v:.4f}",
                      "en": "Cursor: (x={x}, y={y})  {ch} = {v:.4f}"},
     "map.hover.rgb": {"ja": "カーソル: (x={x}, y={y})  {vals}",

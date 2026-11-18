@@ -457,6 +457,9 @@ class RunResult:
     state: StressState          # 実行後の累積ストレス（メモリ保持）
     temp_kelvin: np.ndarray     # 最終フレームの温度マップ（deg 計算用）
     deg2: Optional[RGBMaps] = None  # サブモデルの輝度残存率（最後に処理したフレームの値。未処理なら 1.0）
+    # 最後に処理した入力フレームで、その色が 0（黒）の画素（{c: bool配列}。未処理なら None）。
+    # 黒の画素の deg2 は意味のない値になるので、⑤の deg2 表示で除くのに使う（ファイルには出さない。5-4）
+    input_black: Optional[dict] = None
     outputs: dict = field(default_factory=dict)
     cumulative_aging_seconds: float = 0.0
     resumed_from: int = 0          # 停止位置から再開したときの開始フレーム（絶対）
@@ -589,6 +592,18 @@ STILL_AGING_FPS = 1.0
 EVAL_TEMP_C = 25.0
 
 
+def black_mask_bgr(img: np.ndarray) -> dict:
+    """BGR 画像で、その色が 0（黒＝階調0）の画素を True にした ``{"r","g","b": bool配列}``。
+
+    黒の画素は電流 0 でサブモデルの表の範囲外になり、deg2 が意味のない値になる（11/17 決定）。
+    ⑤の deg2・deg1×deg2 の表示で、その画素を除くのに使う（フェーズF 5-4）。
+    """
+    if img.ndim == 2:
+        m = img == 0
+        return {c: m for c in "rgb"}
+    return {"r": img[..., 2] == 0, "g": img[..., 1] == 0, "b": img[..., 0] == 0}
+
+
 def run_recipe(
     *,
     recipe: Recipe,
@@ -693,6 +708,7 @@ def run_recipe(
     frames_done = 0
     stopped = False
     img_last = None
+    in_last = None                          # 最後に処理した入力フレーム（コアが書き換える前）
     tmp_video: Optional[Path] = None
     looped = is_movie or not eval_step      # フレームループで処理する（静止画の評価だけは1回）
     start = max(resume_from, 0) if looped else 0
@@ -778,6 +794,7 @@ def run_recipe(
                 ht = _next_ht(use_target)
                 if ht is None:
                     break
+                in_last = img.copy()             # コアが img を書き換える前の入力（黒の画素の判定用）
                 model.update(dt, img, ht, state, mm, sim, deg2=deg2)
                 last_temp = _temp(ht)
                 if writer is not None:
@@ -803,6 +820,7 @@ def run_recipe(
             stopped = True
         else:
             ht0_eff = _next_ht(False)
+            in_last = img0.copy()
             model.update(0.0, img0, ht0_eff, state, mm, sim, deg2=deg2)
             last_temp = _temp(ht0_eff)
             frames_done = 1
@@ -818,6 +836,7 @@ def run_recipe(
         size=(width, height), frames_total=reported_frames_total, frames_done=frames_done,
         aging_seconds=aging_seconds, stopped=stopped, state=state, temp_kelvin=last_temp,
         deg2=deg2, resumed_from=start, dt_accel=dt_accel,
+        input_black=None if in_last is None else black_mask_bgr(in_last),
     )
     res._tmp_video = tmp_video
     res._img_bgr = None if is_movie else img_last

@@ -42,6 +42,7 @@ class ResultEntry:
     stopped_at: str | None = None
     seconds_per_frame: float = 0.0     # 1フレームあたりの加速込み Aging 時間（静止画は 0）
     base_aging_seconds: float = 0.0    # このレシピ開始時点での累積 Aging 時間
+    input_black: dict | None = None    # 最後に処理した入力フレームの黒の画素（⑤の deg2 表示で除く。5-4）
 
 
 # --------------------------------------------------------------------------- #
@@ -108,7 +109,8 @@ class SimWorker(QThread):
         entry = ResultEntry(nn=int(res.nn), recipe_name=res.recipe_name,
                             is_movie=res.is_movie, outputs=outputs,
                             seconds_per_frame=res.dt_accel,
-                            base_aging_seconds=res.cumulative_aging_seconds - res.aging_seconds)
+                            base_aging_seconds=res.cumulative_aging_seconds - res.aging_seconds,
+                            input_black=res.input_black)
         self.sig_step_done.emit(entry.nn, entry)
 
     def run(self):
@@ -686,7 +688,8 @@ class MainWindow(QMainWindow):
                                        stopped_at=ts,
                                        seconds_per_frame=res.dt_accel,
                                        base_aging_seconds=(res.cumulative_aging_seconds
-                                                           - res.aging_seconds))
+                                                           - res.aging_seconds),
+                                       input_black=res.input_black)
         self.results_tab.add_result(nn)
         self.run_tab.update_resume_btn()
         return True

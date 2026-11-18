@@ -8,7 +8,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from bisim import engine
+from bisim import engine, imio
 from bisim.model import DEFAULT_MODEL, Recipe, Sequence
 from bisim.paths import SOURCE_DIR, STD_BCSET, STD_DEGPARAM_SM
 
@@ -672,6 +672,12 @@ def test_deg2_written_to_outputs_and_checkpoint():
         assert res.deg2 is not None and res.deg2.shape == (270, 480)
         # コアが deg2 を書き込んでいる（初期値 1.0 から変わる。サブモデルの表によっては 1 を少し超える）
         assert np.all(res.deg2.r != 1.0)
+        # 最後に処理した入力フレームの黒の画素（⑤の deg2 表示で除く。5-4）。コアが書き換える前の入力で判定
+        src = imio.imread(Path(f["input_image"]) / _STILL)
+        assert res.input_black["r"].shape == (270, 480)
+        for c, k in (("r", 2), ("g", 1), ("b", 0)):
+            assert np.array_equal(res.input_black[c], src[..., k] == 0)
+        assert engine.black_mask_bgr(np.zeros((2, 2), dtype=np.uint8))["g"].all()
         out = engine.write_recipe_outputs(result=res, folders=f, sequence_name="T",
                                           model=_model(), model_param=_mm())
         assert Path(out["deg2_g"]).name == "T_01_age01_deg2_g.csv"

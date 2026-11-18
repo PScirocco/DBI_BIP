@@ -1,7 +1,13 @@
 """⑤ 結果（仕様 5-⑤）
 
 - 劣化後プレビュー（動画はフレームスライダ）
-- 輝度残存率マップ（``_deg_{r,g,b}.csv``）：R / G / B / RGB合成。明るい＝劣化していない
+- 輝度残存率マップ：R / G / B / RGB合成。明るい＝劣化していない。表示する量を選択ボタンで切り替える（フェーズF 5-4）
+    - deg1      … ``_deg_{r,g,b}.csv``。基準電流密度での輝度残存率（別の画像の結果どうしの比較に使う）
+    - deg2      … ``_deg2_{r,g,b}.csv``。サブモデルの輝度残存率（動画は最後のフレームの値）
+    - deg1×deg2 … 表示時に上の2つを掛ける（ファイルは増やさない）。画像にかけた値
+    deg2 の無い結果（フェーズF より前の停止結果）では deg2 系のボタンは押せない。
+    deg2・deg1×deg2 では、黒（最後に処理した入力フレームでその色が 0）の画素を灰色で表示し、表示範囲と統計から外す
+    （黒の画素の deg2 は電流 0 で表の範囲外になり、意味のない値になるため。11/17 決定）
 - 累積時間マップ（``_stat_{r,g,b}.csv``）：同上。R/G/B各色ごとに自分の最大値で正規化し明暗反転（暗い＝累積大）
 - 時系列：白紙の軸のみ（中身なし。アルゴリズム担当者間で継続検討）
 - A/B比較：将来枠（無効表示）
@@ -15,7 +21,8 @@ import numpy as np
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QPushButton, QSlider, QTabWidget, QVBoxLayout, QWidget,
+    QButtonGroup, QComboBox, QHBoxLayout, QLabel, QPushButton, QRadioButton, QSlider, QTabWidget,
+    QVBoxLayout, QWidget,
 )
 
 from bisim import engine, imio
@@ -27,6 +34,20 @@ CH_KEYS = ["r", "g", "b", "rgb"]
 #   zero  : 0 〜 面内最大（従来）。累積0＝白
 #   minmax: 面内最小 〜 面内最大。前ステップからの引き継ぎで全面が底上げされていても、ムラが見える
 SCALE_KEYS = ["zero", "minmax"]
+# 輝度残存率マップの表示スケール（フェーズF 5-4。2026-11-18）
+#   unit  : 0 〜 1（従来）。deg2 は 1 を少し超えることがあり、超えた分は 1（白）として表示
+#   minmax: 面内最小 〜 面内最大（黒の画素を除く）。deg2 は 1 の近くに集まるので、ムラを見るときに使う
+DEG_SCALE_KEYS = ["unit", "minmax"]
+# 輝度残存率マップで表示する量（フェーズF 5-4）
+DEG_MODES = ["deg1", "deg2", "deg12"]
+# 黒の画素（deg2・deg1×deg2 で除外する画素）の表示色
+BLACK_GRAY = 0.5
+_CH_INDEX = {"r": 0, "g": 1, "b": 2}
+
+
+def has_deg2(entry) -> bool:
+    """結果に deg2 の出力があるか（フェーズF より前の停止結果には無い）。"""
+    return entry is not None and all(f"deg2_{c}" in entry.outputs for c in "rgb")
 
 
 class _MapView(QWidget):
@@ -37,6 +58,7 @@ class _MapView(QWidget):
     正規化の最大値は R/G/B で共通ではなく**各色ごと**（評価反映3 B-2。チャンネル間で
     最大値の桁が大きく異なると、共通基準では小さい方のチャンネルが常に明るいまま
     埋もれて反転が見えにくくなるため）。
+    輝度残存率マップは deg1／deg2／deg1×deg2 を選択ボタンで切り替える（フェーズF 5-4）。
     """
 
     def __init__(self, main, kind: str):
@@ -44,7 +66,27 @@ class _MapView(QWidget):
         self.main = main
         self.kind = kind            # "deg" | "stat"
         self._raw: dict | None = None
+        self._mask: dict | None = None          # 黒の画素（deg2・deg1×deg2 のときだけ）
         lay = QVBoxLayout(self)
+
+        # 表示する量（輝度残存率マップだけ）
+        self.lbl_mode = QLabel(t("map.deg.mode"))
+        self.grp_mode = QButtonGroup(self)
+        self.rb_mode: dict = {}
+        if kind == "deg":
+            row = QHBoxLayout()
+            row.addWidget(self.lbl_mode)
+            for i, k in enumerate(DEG_MODES):
+                rb = QRadioButton(t(f"map.deg.{k}"))
+                self.grp_mode.addButton(rb, i)
+                self.rb_mode[k] = rb
+                row.addWidget(rb)
+            self.rb_mode["deg1"].setChecked(True)
+            self.grp_mode.idToggled.connect(self._on_mode)
+            row.addStretch(1)
+            lay.addLayout(row)
+        else:
+            self.lbl_mode.hide()
 
         top = QHBoxLayout()
         self.lbl_view = QLabel(t("map.view"))
@@ -55,20 +97,23 @@ class _MapView(QWidget):
         self.b_reload.clicked.connect(self.reload)
         top.addWidget(self.lbl_view)
         top.addWidget(self.cmb_ch)
-        # 表示スケールの切替（累積時間マップだけ）
+        # 表示スケールの切替（累積時間マップ：0〜最大／面内最小〜最大、輝度残存率マップ：0〜1／面内最小〜最大）
         self.lbl_scale = QLabel(t("map.scale"))
         self.cmb_scale = QComboBox()
-        self.cmb_scale.addItems([t(f"map.scale.{k}") for k in SCALE_KEYS])
+        self.cmb_scale.addItems(self._scale_texts())
         self.cmb_scale.currentIndexChanged.connect(self.reload)
-        if kind == "stat":
-            top.addWidget(self.lbl_scale)
-            top.addWidget(self.cmb_scale)
-        else:
-            self.lbl_scale.hide()
-            self.cmb_scale.hide()
+        top.addWidget(self.lbl_scale)
+        top.addWidget(self.cmb_scale)
         top.addWidget(self.b_reload)
         top.addStretch(1)
         lay.addLayout(top)
+
+        # 注記（輝度残存率マップだけ：表示している量の意味、deg1×deg2 のずれ、黒の画素の扱い）
+        self.lbl_note = QLabel("")
+        self.lbl_note.setWordWrap(True)
+        lay.addWidget(self.lbl_note)
+        if kind != "deg":
+            self.lbl_note.hide()
 
         self.canvas = MplCanvas()
         self.canvas.set_hover_cb(self._hover)
@@ -79,48 +124,140 @@ class _MapView(QWidget):
         lay.addWidget(self.lbl_hover)
         lay.addWidget(self.lbl_stats)
 
+    # -- 選択の状態 --
+    def _scale_keys(self) -> list:
+        return DEG_SCALE_KEYS if self.kind == "deg" else SCALE_KEYS
+
+    def _scale_texts(self) -> list:
+        pre = "map.degscale" if self.kind == "deg" else "map.scale"
+        return [t(f"{pre}.{k}") for k in self._scale_keys()]
+
+    def scale_key(self) -> str:
+        """表示スケール（累積時間マップ："zero" | "minmax"、輝度残存率マップ："unit" | "minmax"）。"""
+        return self._scale_keys()[max(self.cmb_scale.currentIndex(), 0)]
+
+    def mode_key(self) -> str | None:
+        """輝度残存率マップで表示している量（"deg1" | "deg2" | "deg12"）。累積時間マップは None。"""
+        if self.kind != "deg":
+            return None
+        i = self.grp_mode.checkedId()
+        return DEG_MODES[i] if 0 <= i < len(DEG_MODES) else "deg1"
+
+    def _on_mode(self, _id, checked):
+        if checked:
+            self.reload()
+
+    def _sync_mode_buttons(self, entry) -> bool:
+        """deg2 の有無で deg2 系のボタンを押せる／押せないにする。押せないのに選ばれていたら deg1 に戻す。"""
+        ok = has_deg2(entry)
+        for k in ("deg2", "deg12"):
+            rb = self.rb_mode[k]
+            rb.setEnabled(ok)
+            rb.setToolTip("" if ok or entry is None else t("map.deg.no_deg2"))
+        if not ok and self.mode_key() != "deg1":
+            self.grp_mode.blockSignals(True)
+            self.rb_mode["deg1"].setChecked(True)
+            self.grp_mode.blockSignals(False)
+        return ok
+
+    def _black_mask(self, entry) -> dict | None:
+        """黒の画素（最後に処理した入力フレームでその色が 0）。実行時にエンジンが求めて結果に持たせている。"""
+        return getattr(entry, "input_black", None)
+
+    # -- 表示 --
     def _hover(self, x, y):
         if self._raw is None:
             return
         sel = self.cmb_ch.currentIndex()
+
+        def black(c):
+            return self._mask is not None and bool(self._mask[c][y, x])
+
         if sel < 3:
             c = "rgb"[sel]
-            self.lbl_hover.setText(
-                t("map.hover.ch", x=x, y=y, ch=c.upper(), v=self._raw[c][y, x]))
+            txt = t("map.hover.ch", x=x, y=y, ch=c.upper(), v=self._raw[c][y, x])
+            self.lbl_hover.setText(txt + (t("map.hover.black") if black(c) else ""))
         else:
-            vals = "  ".join(f"{c.upper()}={self._raw[c][y, x]:.4f}" for c in "rgb")
+            vals = "  ".join(f"{c.upper()}={self._raw[c][y, x]:.4f}" + (t("map.hover.black") if black(c) else "")
+                             for c in "rgb")
             self.lbl_hover.setText(t("map.hover.rgb", x=x, y=y, vals=vals))
 
     def showEvent(self, e):  # noqa: N802
         super().showEvent(e)
         self.reload()
 
+    def _load_raw(self, entry) -> dict:
+        mode = self.mode_key()
+        if self.kind == "stat" or mode == "deg1":
+            return {c: _load_csv(entry.outputs[f"{self.kind}_{c}"]) for c in "rgb"}
+        if mode == "deg2":
+            return {c: _load_csv(entry.outputs[f"deg2_{c}"]) for c in "rgb"}
+        return {c: _load_csv(entry.outputs[f"deg_{c}"]) * _load_csv(entry.outputs[f"deg2_{c}"]) for c in "rgb"}
+
+    def _note_text(self, entry, has2: bool) -> str:
+        mode = self.mode_key()
+        parts = [t(f"map.note.{mode}")]
+        if mode == "deg1" and entry is not None and not has2:
+            parts.append(t("map.deg.no_deg2"))
+        if mode in ("deg2", "deg12") and self._raw is not None:
+            if self._mask is None:
+                parts.append(t("map.note.black_none"))
+            else:
+                n = sum(int(self._mask[c].sum()) for c in "rgb")
+                parts.append(t("map.note.black", n=n))
+        return "\n".join(parts)
+
     def reload(self):
         entry = self.main.current_result()
+        has2 = self._sync_mode_buttons(entry) if self.kind == "deg" else False
+        self._mask = None
         if entry is None:
             self.canvas.clear_view(t("map.none"))
             self.lbl_stats.setText(t("map.stats.none"))
             self._raw = None
+            self.lbl_note.setText(self._note_text(None, False) if self.kind == "deg" else "")
             return
         try:
-            raw = {c: _load_csv(entry.outputs[f"{self.kind}_{c}"]) for c in "rgb"}
+            raw = self._load_raw(entry)
         except (OSError, KeyError, ValueError):
             self.canvas.clear_view(t("map.csv_fail"))
             self._raw = None
+            if self.kind == "deg":
+                self.lbl_note.setText(self._note_text(entry, has2))
             return
         self._raw = raw
+        mode = self.mode_key()
+        if mode in ("deg2", "deg12"):
+            mask = self._black_mask(entry)
+            if mask is not None and all(mask[c].shape == raw[c].shape for c in "rgb"):
+                self._mask = mask
+        if self.kind == "deg":
+            self.lbl_note.setText(self._note_text(entry, has2))
         idx = entry.nn
-        label = t("map.label.deg") if self.kind == "deg" else t("map.label.stat")
+        label = t(f"map.label.{mode}") if self.kind == "deg" else t("map.label.stat")
 
-        # 正規化は色ごと（評価反映3 B-2）：deg は常に 0–1（既に残存率そのもの）、
+        def valid(c):
+            """範囲と統計に使う値（黒の画素を除く）。"""
+            a = raw[c]
+            return a[~self._mask[c]] if self._mask is not None else a.ravel()
+
+        def vstat(c, fn, default):
+            v = valid(c)
+            v = v[~np.isnan(v)]
+            return float(fn(v)) if v.size else default
+
+        # 正規化は色ごと（評価反映3 B-2）：deg は 0–1（既に残存率そのもの）または面内最小〜最大、
         # stat は R/G/B それぞれ自分自身の最大値で正規化してから反転する。
         # チャンネル間で最大値の桁が大きく違うと、共通の最大値で揃えると他チャンネルが
         # 常に明るいまま埋もれて反転が見えにくくなるため（RGB合成で特に顕著だった）。
-        # 累積時間マップは「面内最小〜面内最大」でも表示できる（表示スケールの切替）
-        minmax = self.kind == "stat" and self.scale_key() == "minmax"
+        minmax = self.scale_key() == "minmax"
         if self.kind == "deg":
-            vmax_of = {c: 1.0 for c in "rgb"}
-            vmin_of = {c: 0.0 for c in "rgb"}
+            if minmax:
+                vmax_of = {c: vstat(c, np.max, 1.0) for c in "rgb"}
+                vmin_of = {c: vstat(c, np.min, 0.0) for c in "rgb"}
+            else:
+                vmax_of = {c: 1.0 for c in "rgb"}
+                vmin_of = {c: 0.0 for c in "rgb"}
         else:
             vmax_of = {c: (float(np.nanmax(raw[c])) or 1.0) for c in "rgb"}
             vmin_of = {c: (float(np.nanmin(raw[c])) if minmax else 0.0) for c in "rgb"}
@@ -130,24 +267,50 @@ class _MapView(QWidget):
 
         def rng_ch(c):
             if self.kind == "deg":
+                if minmax:
+                    return t("map.deg.range_mm", lo=f"{vmin_of[c]:.4g}", v=f"{vmax_of[c]:.4g}")
                 return t("map.range01")
             if minmax:
                 return t("map.rangev_mm", lo=f"{vmin_of[c]:.3g}", v=f"{vmax_of[c]:.3g}")
             return t("map.rangev", v=f"{vmax_of[c]:.3g}")
 
+        def nblack(c):
+            return int(self._mask[c].sum()) if self._mask is not None else 0
+
         sel = self.cmb_ch.currentIndex()
         if sel < 3:
             c = "rgb"[sel]
             rng = rng_ch(c)
-            self.canvas.show_channel(
-                norm(c), c, t("map.title.ch", idx=idx, label=label, ch=c.upper(), rng=rng))
-            a = raw[c]
-            self.lbl_stats.setText(t("map.stats.ch", ch=c.upper(),
-                                     mn=np.nanmin(a), mx=np.nanmax(a), me=np.nanmean(a)))
+            title = t("map.title.ch", idx=idx, label=label, ch=c.upper(), rng=rng)
+            if self._mask is not None:
+                h, w = raw[c].shape
+                rgb = np.zeros((h, w, 3), dtype=float)
+                rgb[..., _CH_INDEX[c]] = norm(c)
+                rgb[self._mask[c]] = BLACK_GRAY
+                self.canvas.show_rgb(rgb, title)
+            else:
+                self.canvas.show_channel(norm(c), c, title)
+            stats = t("map.stats.ch", ch=c.upper(), mn=vstat(c, np.min, np.nan),
+                      mx=vstat(c, np.max, np.nan), me=vstat(c, np.mean, np.nan))
+            if self._mask is not None:
+                stats += t("map.stats.black", n=nblack(c))
+            self.lbl_stats.setText(stats)
         else:
-            rgb = np.stack([norm("r"), norm("g"), norm("b")], axis=-1)
+            planes = {c: norm(c) for c in "rgb"}
+            if self._mask is not None:
+                # 黒の色成分は、その画素で光っている色の平均で埋める（色味が出ないように）。全色が黒なら灰色
+                lit = {c: ~self._mask[c] for c in "rgb"}
+                cnt = sum(lit[c].astype(int) for c in "rgb")
+                tot = sum(np.where(lit[c], planes[c], 0.0) for c in "rgb")
+                fill = np.where(cnt > 0, tot / np.maximum(cnt, 1), BLACK_GRAY)
+                planes = {c: np.where(lit[c], planes[c], fill) for c in "rgb"}
+            rgb = np.stack([planes["r"], planes["g"], planes["b"]], axis=-1)
             if self.kind == "deg":
-                rng = t("map.range01")
+                if minmax:
+                    rng = t("map.deg.range_rgb_mm",
+                            **{c: f"{vmin_of[c]:.4g}–{vmax_of[c]:.4g}" for c in "rgb"})
+                else:
+                    rng = t("map.range01")
             elif minmax:
                 rng = t("map.rangev_rgb_mm", **{c: f"{vmin_of[c]:.3g}–{vmax_of[c]:.3g}" for c in "rgb"})
             else:
@@ -155,11 +318,7 @@ class _MapView(QWidget):
                         g=f"{vmax_of['g']:.3g}", b=f"{vmax_of['b']:.3g}")
             self.canvas.show_rgb(rgb, t("map.title.rgb", idx=idx, label=label, rng=rng))
             self.lbl_stats.setText(
-                " / ".join(f"{c.upper()} mean {np.nanmean(raw[c]):.4g}" for c in "rgb"))
-
-    def scale_key(self) -> str:
-        """累積時間マップの表示スケール（"zero" | "minmax"）。"""
-        return SCALE_KEYS[max(self.cmb_scale.currentIndex(), 0)]
+                " / ".join(f"{c.upper()} mean {vstat(c, np.mean, np.nan):.4g}" for c in "rgb"))
 
     def _norm(self, a: np.ndarray, vmax: float, vmin: float = 0.0) -> np.ndarray:
         """表示用の 0–1 正規化（vmin→0、vmax→1）。stat は明暗反転（暗=累積大）、deg はそのまま（明=劣化少）。
@@ -183,9 +342,12 @@ class _MapView(QWidget):
         cur_s = self.cmb_scale.currentIndex()
         self.cmb_scale.blockSignals(True)
         self.cmb_scale.clear()
-        self.cmb_scale.addItems([t(f"map.scale.{k}") for k in SCALE_KEYS])
+        self.cmb_scale.addItems(self._scale_texts())
         self.cmb_scale.setCurrentIndex(max(cur_s, 0))
         self.cmb_scale.blockSignals(False)
+        self.lbl_mode.setText(t("map.deg.mode"))
+        for k, rb in self.rb_mode.items():
+            rb.setText(t(f"map.deg.{k}"))
         self.lbl_hover.setText(t("map.hover.none"))
         self.reload()
 

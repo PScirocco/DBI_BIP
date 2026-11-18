@@ -444,7 +444,7 @@ def test_prev_step_preview_refreshes_when_config_tab_shown():
 
 def test_stat_map_scale_minmax_toggle():
     """累積時間マップは「0〜面内最大」（従来・既定）と「面内最小〜面内最大」を切り替えられる
-    （Excel No.9／10/15 MTG 指摘4。2026-10-23）。輝度残存率マップには切替が無い。"""
+    （Excel No.9／10/15 MTG 指摘4。2026-10-23）。輝度残存率マップは「0〜1」と「面内最小〜最大」（フェーズF 5-4）。"""
     if not _pyside_ok():
         return
     import numpy as np
@@ -464,7 +464,7 @@ def test_stat_map_scale_minmax_toggle():
             win.results[1] = ResultEntry(nn=1, recipe_name="x", is_movie=False, outputs=outputs)
             win.results_tab.add_result(1)
             vs, vd = win.results_tab.view_stat, win.results_tab.view_deg
-            assert not vd.cmb_scale.isVisibleTo(vd)              # 輝度残存率マップには無い
+            assert vd.scale_key() == "unit"                      # 輝度残存率マップは 0〜1 が既定
             assert vs.scale_key() == "zero"                      # 既定は従来どおり
             cap = {}
             vs.canvas.show_channel = lambda arr, ch, title="": cap.update(arr=arr.copy(), title=title)
@@ -668,6 +668,14 @@ def test_run_small_sequence_end_to_end():
         assert np.allclose(shown, 1.0 - raw / vmax)
         assert shown[np.unravel_index(np.nanargmax(raw), raw.shape)] == 0.0
         assert np.allclose(vd._norm(vd._raw["r"], 1.0), np.clip(vd._raw["r"], 0.0, 1.0))
+        # 輝度残存率マップの deg1×deg2（フェーズF 5-4）：実行結果の CSV の積。黒の画素は出力動画の最後のフレームで判定
+        assert vd.rb_mode["deg12"].isEnabled()
+        vd.rb_mode["deg12"].setChecked(True)
+        want12 = (np.loadtxt(entry.outputs["deg_r"], delimiter=",")
+                  * np.loadtxt(entry.outputs["deg2_r"], delimiter=","))
+        assert np.allclose(vd._raw["r"], want12)
+        assert vd._mask is not None and vd._mask["r"].shape == want12.shape
+        vd.rb_mode["deg1"].setChecked(True)
         # フレームスライダに Aging 時間を併記（IP設計者レビュー3 変更7）
         from bisim import engine
         from bisim.ui.i18n import t
@@ -718,6 +726,133 @@ def test_stat_rgb_composite_normalizes_each_channel_independently():
             assert rgb[0, 1, 1] == 0.0   # G: 自分の最大値(10.0)の画素でGが暗
             assert rgb[0, 1, 2] == 0.0   # B: 自分の最大値(100.0)の画素でBが暗
             assert "R=1" in captured["title"] and "G=10" in captured["title"] and "B=100" in captured["title"]
+    finally:
+        _close(win)
+
+
+def _deg_map_entry(d: Path, nn: int, with_deg2: bool):
+    """輝度残存率マップのテスト用の結果（2×2、静止画）。
+
+    deg   = [[1.0, 0.5], [0.8, 1.0]]
+    deg2  = [[1.02, 0.9], [0.05, 0.98]]（1 を少し超える値と、黒の画素の意味のない小さな値を含む）
+    黒の画素（最後に処理した入力フレームでその色が 0）：(y=1, x=0) は全色、(y=0, x=1) は B だけ
+    """
+    import numpy as np
+    from bisim import engine
+    from bisim.ui.main_window import ResultEntry
+    deg = np.array([[1.0, 0.5], [0.8, 1.0]])
+    deg2 = np.array([[1.02, 0.9], [0.05, 0.98]])
+    outputs = {}
+    for c in "rgb":
+        for kind, a in (("deg", deg), ("stat", np.ones((2, 2)))) + ((("deg2", deg2),) if with_deg2 else ()):
+            p = d / f"{nn}_{kind}_{c}.csv"
+            np.savetxt(p, a, delimiter=",")
+            outputs[f"{kind}_{c}"] = p
+    img = np.full((2, 2, 3), 128, dtype=np.uint8)
+    img[1, 0, :] = 0
+    img[0, 1, 0] = 0                       # BGR の B
+    return (ResultEntry(nn=nn, recipe_name="x", is_movie=False, outputs=outputs,
+                        input_black=engine.black_mask_bgr(img)), deg, deg2)
+
+
+def test_deg_map_mode_buttons_disabled_without_deg2():
+    """deg2 の無い結果（フェーズF より前の停止結果）では deg2・deg1×deg2 のボタンを押せず、deg1 で表示する（5-4）。"""
+    if not _pyside_ok():
+        return
+    from bisim.ui.i18n import t
+    win = _new_window()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            win.results[1], deg, _ = _deg_map_entry(d, 1, with_deg2=False)
+            win.results[2], _, _ = _deg_map_entry(d, 2, with_deg2=True)
+            rt = win.results_tab
+            vd = rt.view_deg
+            rt.add_result(2)
+            vd.rb_mode["deg2"].setChecked(True)
+            assert vd.mode_key() == "deg2"
+            rt.add_result(1)                                     # deg2 の無い結果へ
+            vd.reload()
+            assert not vd.rb_mode["deg2"].isEnabled() and not vd.rb_mode["deg12"].isEnabled()
+            assert vd.rb_mode["deg2"].toolTip() == t("map.deg.no_deg2")
+            assert vd.mode_key() == "deg1"                       # deg1 に戻る
+            assert (vd._raw["r"] == deg).all()
+            assert t("map.deg.no_deg2") in vd.lbl_note.text()
+            vd.rb_mode["deg12"].setChecked(True)                 # プログラムから選んでも deg1 に戻す
+            assert vd.mode_key() == "deg1" and (vd._raw["g"] == deg).all()
+            rt.cmb_idx.setCurrentText("2")                       # deg2 のある結果に戻すと押せる
+            vd.reload()
+            assert vd.rb_mode["deg2"].isEnabled() and vd.rb_mode["deg12"].isEnabled()
+            assert t("map.deg.no_deg2") not in vd.lbl_note.text()
+    finally:
+        _close(win)
+
+
+def test_deg_map_deg2_product_scale_and_black_pixels():
+    """⑤ 輝度残存率マップ（5-4）：deg2・deg1×deg2 の値、0〜1／面内最小〜最大、黒の画素の扱い、2行の見出し。"""
+    if not _pyside_ok():
+        return
+    import numpy as np
+    from bisim.ui import i18n
+    from bisim.ui.i18n import t
+    from bisim.ui.tabs.results import BLACK_GRAY
+    win = _new_window()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            win.results[1], deg, deg2 = _deg_map_entry(d, 1, with_deg2=True)
+            rt = win.results_tab
+            rt.add_result(1)
+            vd = rt.view_deg
+            cap = {}
+            vd.canvas.show_rgb = lambda rgb, title="": cap.update(rgb=rgb.copy(), title=title)
+            vd.canvas.show_channel = lambda arr, ch, title="": cap.update(arr=arr.copy(), title=title)
+
+            # deg1：黒の画素は除かない（deg1 は意味のある値）。見出しは2行
+            vd.cmb_ch.setCurrentIndex(0)
+            vd.reload()
+            assert vd._mask is None and np.allclose(cap["arr"], deg)
+            assert t("map.label.deg1") in cap["title"] and "\n" in cap["title"]
+
+            # deg2（R）：0〜1 では 1 を超える値は 1、黒の画素は灰色、統計は黒の画素を除く
+            vd.rb_mode["deg2"].setChecked(True)
+            assert np.allclose(vd._raw["r"], deg2)
+            assert vd._mask is not None and vd._mask["r"].tolist() == [[False, False], [True, False]]
+            rgb = cap["rgb"]
+            assert rgb[0, 0, 0] == 1.0 and abs(rgb[0, 1, 0] - 0.9) < 1e-12
+            assert (rgb[1, 0] == BLACK_GRAY).all()
+            assert t("map.label.deg2") in cap["title"]
+            assert t("map.stats.black", n=1) in vd.lbl_stats.text() and "min 0.9 " in vd.lbl_stats.text()
+            assert t("map.note.black", n=1 + 1 + 2) in vd.lbl_note.text()   # R 1・G 1・B 2
+            vd._hover(0, 1)
+            assert t("map.hover.black") in vd.lbl_hover.text()
+
+            # deg1×deg2・面内最小〜最大（黒の画素を除いた範囲：R は 0.45〜1.02）
+            vd.rb_mode["deg12"].setChecked(True)
+            vd.cmb_scale.setCurrentIndex(1)
+            assert vd.scale_key() == "minmax"
+            assert np.allclose(vd._raw["r"], deg * deg2)
+            rgb = cap["rgb"]
+            assert rgb[0, 1, 0] == 0.0 and rgb[0, 0, 0] == 1.0     # 最小 0.45 → 0、最大 1.02 → 1
+            assert (rgb[1, 0] == BLACK_GRAY).all()
+            assert "0.45" in cap["title"] and "1.02" in cap["title"]
+            assert t("map.note.deg12") in vd.lbl_note.text()
+
+            # RGB合成（0〜1）：B だけ黒の画素は、光っている R・G の平均で B を埋める。全色黒は灰色
+            vd.cmb_scale.setCurrentIndex(0)
+            vd.cmb_ch.setCurrentIndex(3)
+            rgb = cap["rgb"]
+            assert np.allclose(rgb[0, 1], [0.45, 0.45, 0.45])
+            assert (rgb[1, 0] == BLACK_GRAY).all()
+            assert rgb[0, 0, 0] == 1.0                              # 1.02 は 1 として表示
+            vd._hover(1, 0)
+            assert vd.lbl_hover.text().count(t("map.hover.black")) == 1   # B だけ
+
+            # 言語を切り替えても、選んだ量とスケールは保たれる
+            i18n.set_lang("ja")
+            assert vd.mode_key() == "deg12" and vd.scale_key() == "unit"
+            assert vd.rb_mode["deg12"].text() == t("map.deg.deg12")
+            i18n.set_lang("en")
     finally:
         _close(win)
 
