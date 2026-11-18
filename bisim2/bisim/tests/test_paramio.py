@@ -18,7 +18,8 @@ def test_read_real_model_csv():
 
 
 def test_read_real_sim_csv():
-    s = paramio.read_sim_csv(SOURCE_DIR / "dbi_conf" / "simconf.csv")
+    # 新コア（フェーズF）の標準ファイル。DBV_NIT・DPK_ON・GADJ の行は手順5 までは読み飛ばす
+    s = paramio.read_sim_csv(SOURCE_DIR / "dbi_input" / "simconf.csv")
     assert s["ACCEL_RATIO"] == 30000.0
     assert s["TMP_L"] == 25.0 and s["TMP_H"] == 60.0
     assert s["AGING_TIME"] == 10.0

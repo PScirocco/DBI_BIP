@@ -67,7 +67,7 @@ def expected(seq: dict, in_dir: Path, exp_dir: Path) -> dict:
     s.folders["input_image"] = s.folders["heatmap"] = str(in_dir)
     with tempfile.TemporaryDirectory() as d:
         s.folders["output"] = d
-        res = engine.run_sequence(sequence=s, model=engine.MasterModel())
+        res = engine.run_sequence(sequence=s, model=engine.CoreModel())
     st = res[-1].state
     stats = {c: (float(st.channel(c).min()), float(st.channel(c).max())) for c in "rgb"}
     for key in ("zero", "minmax"):

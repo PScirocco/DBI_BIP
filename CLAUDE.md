@@ -52,14 +52,19 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `material/AMOLED_Image_sticking_prevention_compensation_v01.pptx`（2018, Matsui） | DBI補正アルゴリズムの理論。劣化モデルの根拠 |
 | `material/Platform Concept for DBI & BIP development.pptx`（2026.07, Matsui & Isobe） | シミュレータ＋DBI/BIP評価プラットフォームの構想 |
 
-## 現在の状況（2026-11-17）
+## 現在の状況（2026-11-18）
+
+- **2026-11-18 フェーズF 手順4 済：bisim は新コアで動く**（`bisim2/source/main.py`＝新コア、旧コアは `bisim2/source/old_core_261117/`）。
+  `engine.CoreModel`（`MasterModel` は削除）、deg2 を `RunResult.deg2` → `…_deg2_{c}.csv`／停止チェックポイントに出力。
+  パネル設定（bcsetting・sm）は今は標準ファイル `bisim2/source/dbi_conf/` 固定、Sim 条件の新3項目は `engine.CORE_SIM_DEFAULTS`（暫定）。
+  松井さんの 11 ケースをエンジン経由で差 0、selftest **99/99**。
+  **次のセッションは手順5 から：引き継ぎは `doc/progress/261118_引き継ぎ資料.md`、開始プロンプトは `261118_次セッション開始プロンプト.md`**
 
 - **2026-11-17 フェーズF 進行中。手順・決定事項・松井さんへの確認事項は `doc/progress/261117_フェーズF_進め方と決定事項.md`**。
   新コアの受領物は `receive/Burn_in_sim_core_01/`（`b771914`）。bisim 側で追加したもの（サブモデルの読み込み失敗検出、
   `burn_in_band_extract`、`burn_in_core` の省略可能引数 `deg2_r/g/b` と `{idx}_deg2_{c}.csv` 出力）は `receive/` に入れて確認済み。
-  **bisim（`bisim2/source/`）はまだ旧コアのまま**。手順2（旧コアの基準データ）は済：`bisim2/eval_test/_baseline_oldcore_261117/`
+  手順2（旧コアの基準データ）は済：`bisim2/eval_test/_baseline_oldcore_261117/`
   （Git 管理外、`README.md` あり）＋タグ `oldcore-baseline-261117`。手順4〜7 の作業計画は了承済み（同資料）。
-  **次のセッションは手順4 から：引き継ぎは `doc/progress/261117_引き継ぎ資料.md`、開始プロンプトは `261117_次セッション開始プロンプト.md`**。
   確認用スクリプトは `tool/phaseF/`（README あり）。セッションは区切りのよいところで分け、引き継ぎを準備する（担当者の指示 2026-11-17）
 - 松井さんとのコアの Q&A は `doc/Q&A/`（担当者の判断で commit しない。`.gitignore` には入れていないので `git status` に未追跡として出る）
 
@@ -178,12 +183,12 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 
 | モジュール | 役割 | フェーズ |
 |---|---|---|
-| `paths.py` | SOURCE_DIR / APP_DIR / LOG_DIR / 既定フォルダ6種 | A |
+| `paths.py` | SOURCE_DIR / APP_DIR / LOG_DIR / 既定フォルダ6種（フェーズF：bcset・model＝`source/dbi_conf`、simconf＝`source/dbi_input`）/ パネル設定の標準ファイル `STD_BCSET`・`STD_DEGPARAM_MM`・`STD_DEGPARAM_SM` | A/F |
 | `model.py` | `Recipe`（`step_type`＝`aging`/`eval` を手動選択・未指定/旧JSONは拡張子から。`heatmap_mode`/`fixed_temp_c` でヒートマップなし＝固定温度に対応） / `Sequence`（`stops` に停止状態を内包） / `StopState` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） | A/D |
 | `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name`（`_`→`-`）、`stop_dir`（`_stops/` チェックポイントのフォルダ名） | A/D |
 | `paramio.py` | model/sim パラメータ CSV I/O（CLI版 `degparam_mm.csv` / `simconf.csv` と互換） | B |
 | `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） | B |
-| `engine.py` | `run_recipe` は種別で分岐（Aging×動画／Aging×静止画＝`STILL_AGING_FPS`=1／PQ評価＝`dt=0`・`EVAL_TEMP_C`=25℃固定）/ `media_size`・`sequence_reference_size`（③の画像サイズ検査）/ `DegradationModel`（差し替え点）/ `MasterModel`（`source/` ラップ）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に。`AGING_TIME`>0 で目標時間駆動＝超過打切り／不足なら動画を周回連結、`resume_from` が周回をまたぐ場合は `% frames_total` でシーク、見積りは `aging_time_add_frames()` に共通化）/ `run_sequence` / 出力の確定・破棄 / `format_aging`（時:分:秒表示）/ `movie_meta`（fps・総フレーム数） | B/D |
+| `engine.py` | `run_recipe` は種別で分岐（Aging×動画／Aging×静止画＝`STILL_AGING_FPS`=1／PQ評価＝`dt=0`・`EVAL_TEMP_C`=25℃固定）/ `media_size`・`sequence_reference_size`（③の画像サイズ検査）/ `DegradationModel`（差し替え点。`update(..., deg2=None)`）/ `CoreModel`（新コア `burn_in_core` のラップ。bcsetting・sm を読み、Band 選択を `DBV_NIT`・`DPK_ON` ごとにキャッシュ。フェーズF）/ `core_sim_dict`・`CORE_SIM_DEFAULTS` / `RGBMaps`（deg2 など）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に。`AGING_TIME`>0 で目標時間駆動＝超過打切り／不足なら動画を周回連結、`resume_from` が周回をまたぐ場合は `% frames_total` でシーク、見積りは `aging_time_add_frames()` に共通化）/ `run_sequence` / 出力の確定・破棄 / `format_aging`（時:分:秒表示）/ `movie_meta`（fps・総フレーム数） | B/D |
 | `logio.py` | `Logger`（`_log_BISim/` セッションローテーション＝起動ごとに新ファイル。容量超過時は同一セッション内でも新パートへ、総容量上限、画面表示 listener） | B |
 | `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ。`step_config.py`③にステップ種別の選択＋PQ評価時はヒートマップ・Sim条件欄を隠す＋ファイル選択時の画像サイズ検査、`run.py`④に選択ステップの動画情報＋AGING_TIME判定ラベル、`results.py`⑤の累積時間マップはR/G/B各色独自の最大値で正規化） | C/D |
 | `installer/` | `bisim.spec`（PyInstaller 6.x・onedir）/ `bisim_launcher.py` / `build_exe.ps1` / `README.md`。手順は `doc/EXEビルド手順書.md` | E |
@@ -226,13 +231,15 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 
 ## コードの要点
 
-- エントリ: `source/main.py`（`temp_burn_in` が本体、`temp_update_stat_and_burn_img` が劣化モデル）
-- 設定読み込み: `source/load_com_info.py`
+- **2026-11-18 から新コア**（松井さん `Burn_in_sim_core_01`）。エントリ: `source/main.py`（CLI は `burn_in`、bisim が使うのは
+  `burn_in_core`（1フレーム）と `burn_in_band_extract`（Band 選択））
+- 設定読み込み: `source/load_com_info.py`（`load_bcset`・`load_degparam_mm`・`load_degparam_sm`・`load_simconf`）
 - 補助: `mov_resize.py`（入力動画整形）, `tmp_htmap_mov_gen.py`（簡易ヒートマップ生成）, `eval_img_gen.py`（評価用画像生成）
-- 入力: `dbi_common/`（映像・ヒートマップ）, `dbi_input/bcsetting.csv`, `dbi_conf/degparam_mm.csv`・`simconf.csv`
-- 出力: `dbi_output/`（`{idx}_out_img.*`, `{idx}_deg_{r,g,b}.csv`, `{idx}_stat_{r,g,b}.csv`）
+- 入力: `dbi_common/`（映像・ヒートマップ）, `dbi_conf/bcsetting.csv`・`degparam_mm.csv`・`degparam_sm.csv`, `dbi_input/simconf.csv`
+- 出力（CLI）: `dbi_output/`（`{idx}_out_img.*`, `{idx}_deg_{r,g,b}.csv`, `{idx}_deg2_{r,g,b}.csv`, `{idx}_stat_{r,g,b}.csv`）
+- 旧コアは `source/old_core_261117/`（実行しない）。新コアの式・旧コアとの違いは `doc/progress/261117_フェーズF_進め方と決定事項.md` §0
 
-### 劣化モデル（暫定）
+### 劣化モデル（旧コア。新コアの式への書き直しはフェーズF 手順7）
 
 ```
 # ストレス累積（＝Iref換算ストレス時間 t_eq の積算）

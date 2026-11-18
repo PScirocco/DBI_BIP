@@ -22,8 +22,11 @@ def _info() -> int:
     print(f"  Sequence   : recipes={len(Sequence().recipes)}")
     print(f"  例 出力名   : {naming.output_name('SEQ-A', 1, 'aging01', 'deg', 'r')}")
     try:
-        from bisim.engine import MasterModel
-        print(f"  Engine     : DegradationModel='{MasterModel().name}'（source/ ラップOK）")
+        from bisim.engine import CoreModel
+        m = CoreModel()
+        print(f"  Engine     : DegradationModel='{m.name}'（source/ 新コア ラップOK）"
+              f" bcsetting={m.bcset_path.name}（{m.bc_dict['BC_BAND_NUM']} Band）"
+              f" sub-model={m.sm_path.name}")
     except Exception as e:  # noqa: BLE001
         print(f"  Engine     : ロード失敗 — {type(e).__name__}: {e}")
     return 0

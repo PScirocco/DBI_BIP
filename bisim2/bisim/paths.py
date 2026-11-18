@@ -41,8 +41,13 @@ FOLDER_KEYS = ["input_image", "heatmap", "bcset", "model", "simconf", "output"]
 DEFAULT_FOLDERS: dict[str, Path] = {
     "input_image": SOURCE_DIR / "dbi_common",
     "heatmap":     SOURCE_DIR / "dbi_common",
-    "bcset":       SOURCE_DIR / "dbi_input",
+    "bcset":       SOURCE_DIR / "dbi_conf",     # 新コア（フェーズF）の置き方：パネル設定は dbi_conf
     "model":       SOURCE_DIR / "dbi_conf",
-    "simconf":     SOURCE_DIR / "dbi_conf",
+    "simconf":     SOURCE_DIR / "dbi_input",    # Sim 条件は dbi_input
     "output":      _default_output(),
 }
+
+# パネル設定の標準ファイル（新コア。手順5 でシーケンスに持たせるまでは常にこれを使う）
+STD_BCSET = SOURCE_DIR / "dbi_conf" / "bcsetting.csv"
+STD_DEGPARAM_MM = SOURCE_DIR / "dbi_conf" / "degparam_mm.csv"
+STD_DEGPARAM_SM = SOURCE_DIR / "dbi_conf" / "degparam_sm.csv"

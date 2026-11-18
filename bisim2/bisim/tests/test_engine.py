@@ -21,20 +21,28 @@ _STILL_HT = "eval_img_ht.png"
 
 def _folders(out_dir) -> dict:
     return {"input_image": str(_COMMON), "heatmap": str(_COMMON),
-            "bcset": str(SOURCE_DIR / "dbi_input"),
+            "bcset": str(SOURCE_DIR / "dbi_conf"),
             "model": str(SOURCE_DIR / "dbi_conf"),
-            "simconf": str(SOURCE_DIR / "dbi_conf"),
+            "simconf": str(SOURCE_DIR / "dbi_input"),
             "output": str(out_dir)}
 
 
+_MODEL = None
+
+
 def _model():
-    return engine.MasterModel()
+    """新コアのモデル（パネル設定の読み込みを毎回しないよう1つを使い回す）。"""
+    global _MODEL
+    if _MODEL is None:
+        _MODEL = engine.CoreModel()
+    return _MODEL
 
 
-def test_master_model_loads():
-    m = _model()
-    assert m.name == "master"
+def test_core_model_loads():
+    m = engine.CoreModel()
+    assert m.name == "core01"
     assert isinstance(m, engine.DegradationModel)   # Protocol 準拠
+    assert m.bc_dict["BC_BAND_NUM"] == m.sm_dict["DEG_2D_BC_IxDEG_R"].shape[0]
 
 
 def test_stress_state():
@@ -106,16 +114,21 @@ def test_still_image_aging_accumulates_at_fps1():
                                           model=_model(), model_param=r.model_param)
         assert Path(out["image"]).name == "T_01_age01_image.png"   # 出力は最後の劣化画像
 
-        # 1フレームずつの手計算と一致する（劣化した後の明るさでストレスを貯める）
+        # 新コアはストレスを「劣化前の画素電流」で貯めるので、同じ絵を5回処理した stat は
+        # 1回分のちょうど5倍になる。1回分はコアの burn_in_core を直接呼んで求める
+        m = _model()
         img = cv2.imdecode(np.fromfile(str(_COMMON / _STILL), np.uint8), cv2.IMREAD_COLOR)
-        mm = {k: v for k, v in r.model_param.items()}
-        n, k0, q, b0 = mm["N"][0], mm["K0"][0], mm["Q"][0], mm["B0"][0]
-        lum0 = (img[:, :, 2] / 255) ** 2.2
-        s = np.zeros(lum0.shape)
-        for _ in range(5):
-            lum = lum0 * np.exp(-1.0 * s ** b0)
-            s += 1.0 * 100.0 * lum ** n / (k0 * np.exp(q / 298.0))
-        assert np.allclose(res.state.r, s, rtol=1e-12, atol=0)
+        ht = np.zeros_like(img)
+        sim = engine.core_sim_dict(dict(r.sim_param, TMP_L=25.0, TMP_H=25.0))
+        one = engine.StressState.zeros(*img.shape[:2])
+        rc = m._core.burn_in_core(1.0, img.copy(), ht, m.bc_dict,
+                                  {f"{k}_{c}": v[i] for k, v in r.model_param.items()
+                                   for i, c in enumerate("rgb")},
+                                  m.sm_dict, sim, stat_r=one.r, stat_g=one.g, stat_b=one.b,
+                                  **m.band_data(sim))
+        assert rc == 0 and float(np.max(one.r)) > 0.0
+        for c in "rgb":
+            assert np.allclose(res.state.channel(c), 5.0 * one.channel(c), rtol=1e-12, atol=0)
 
 
 def test_still_image_aging_zero_aging_time_is_one_frame():
@@ -413,6 +426,28 @@ def _movie_meta(path) -> tuple:
     return fps, total
 
 
+def _small_movie_folders(d, frames: int = 20, size: tuple = (96, 54)) -> dict:
+    """周回連結のテスト用に、入力動画・ヒートマップ動画を小さくしたものを d に作る。
+
+    新コアは 480×270 で1フレーム約0.2秒かかり、1周回（405フレーム）を超えるテストが
+    1本 90 秒以上になるため。テストの目的（周回のつなぎ方）は画像の大きさに依らない。
+    """
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    for name in (_MOVIE, _MOVIE_HT):
+        cap = cv2.VideoCapture(str(_COMMON / name))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        w = cv2.VideoWriter(str(Path(d) / name), fourcc, fps, size)
+        for _ in range(frames):
+            ok, frm = cap.read()
+            assert ok
+            w.write(cv2.resize(frm, size, interpolation=cv2.INTER_AREA))
+        w.release()
+        cap.release()
+    f = _folders(d)
+    f["input_image"] = f["heatmap"] = str(d)
+    return f
+
+
 def test_aging_time_zero_is_unlimited():
     """既定 AGING_TIME=0 は従来どおり無制限（1周回のみ、打ち切りなし）。"""
     r = Recipe()
@@ -471,17 +506,18 @@ def test_run_recipe_aging_time_truncates():
 def test_run_recipe_aging_time_loops_past_movie_length():
     with tempfile.TemporaryDirectory() as d:
         r = Recipe(recipe_name="aging01", input_image=_MOVIE, heatmap=_MOVIE_HT)
-        fps, native_total = _movie_meta(_COMMON / _MOVIE)
+        f = _small_movie_folders(d)
+        fps, native_total = _movie_meta(Path(d) / _MOVIE)
         dt_accel = (1.0 / fps) * r.sim_param["ACCEL_RATIO"]
         r.sim_param["AGING_TIME"] = dt_accel * (native_total + 5)   # 1周回+5フレーム分
 
-        res = engine.run_recipe(recipe=r, folders=_folders(d), sequence_name="T",
+        res = engine.run_recipe(recipe=r, folders=f, sequence_name="T",
                                 nn="01", model=_model())
         assert not res.stopped
         assert res.frames_done == native_total + 5       # 1周回を超えて周回連結された
         assert res.frames_total == res.frames_done
 
-        out = engine.write_recipe_outputs(result=res, folders=_folders(d),
+        out = engine.write_recipe_outputs(result=res, folders=f,
                                           sequence_name="T", model=_model(),
                                           model_param=r.model_param)
         assert _movie_count(out["movie"]) == res.frames_done   # 出力動画も周回ぶん連結済み
@@ -490,8 +526,8 @@ def test_run_recipe_aging_time_loops_past_movie_length():
 def test_run_recipe_aging_time_stop_and_resume_across_wrap():
     with tempfile.TemporaryDirectory() as d:
         r = Recipe(recipe_name="aging01", input_image=_MOVIE, heatmap=_MOVIE_HT)
-        f = _folders(d)
-        fps, native_total = _movie_meta(_COMMON / _MOVIE)
+        f = _small_movie_folders(d)
+        fps, native_total = _movie_meta(Path(d) / _MOVIE)
         dt_accel = (1.0 / fps) * r.sim_param["ACCEL_RATIO"]
         r.sim_param["AGING_TIME"] = dt_accel * (native_total + 20)  # 1周回+20フレーム分
 
@@ -568,3 +604,130 @@ def test_run_sequence_resume_plan():
                                       resume=plan, max_frames=3)
         assert results[0].resumed_from == 3
         assert results[0].cumulative_aging_seconds == results[0].aging_seconds > st.aging_seconds
+
+
+# --------------------------------------------------------------------------- #
+#  新コア（フェーズF。松井さん Burn_in_sim_core_01）
+# --------------------------------------------------------------------------- #
+_REF_CORE = Path(__file__).resolve().parent / "data" / "core01_case1-2.npz"
+
+
+def test_core_matches_matsui_reference_case1_2():
+    """松井さんのケース1→2 の切り出し（16×16。作り方は tool/phaseF/make_selftest_core_data.py）を
+    bisim のエンジン（run_recipe → write_recipe_outputs）で計算し、stat・deg・deg2・出力画像が一致する。
+
+    ケース1 = Aging（初期ストレス0）、ケース2 = ケース1 の stat を引き継ぐテストステップ
+    （bisim では「Aging・静止画（fps=1）」で流すと松井さんの 1 秒分と同じ条件になる）。"""
+    ref = np.load(_REF_CORE)
+    mp = {k: list(ref[f"mm_{k}"]) for k in ("N", "K0", "Q", "B0", "A")}
+    with tempfile.TemporaryDirectory() as d:
+        f = _folders(d)
+        f["input_image"] = f["heatmap"] = str(d)
+        state = None
+        for idx in (1, 2):
+            cv2.imwrite(str(Path(d) / f"in{idx}.png"), ref[f"c{idx}_img"])
+            cv2.imwrite(str(Path(d) / f"ht{idx}.png"), ref[f"c{idx}_ht"])
+            sim = {k: float(ref[f"c{idx}_sim_{k}"]) for k in
+                   ("ACCEL_RATIO", "TMP_L", "TMP_H", "DBV_NIT", "DPK_ON", "GADJ_R", "GADJ_G", "GADJ_B")}
+            sim["AGING_TIME"] = 0.0                  # 静止画は1フレーム（1秒×ACCEL_RATIO）
+            r = Recipe(recipe_name=f"c{idx}", input_image=f"in{idx}.png", heatmap=f"ht{idx}.png",
+                       model_param=mp, sim_param=sim, step_type="aging")
+            res = engine.run_recipe(recipe=r, folders=f, sequence_name="M", nn=f"{idx:02d}",
+                                    model=_model(), initial_state=state)
+            out = engine.write_recipe_outputs(result=res, folders=f, sequence_name="M",
+                                              model=_model(), model_param=mp)
+            for c in "rgb":
+                for kind in ("stat", "deg", "deg2"):
+                    got = np.loadtxt(out[f"{kind}_{c}"], delimiter=",")
+                    assert np.array_equal(got, ref[f"c{idx}_{kind}_{c}"]), f"case{idx} {kind}_{c}"
+            assert np.array_equal(cv2.imread(str(out["image"])), ref[f"c{idx}_out"]), f"case{idx} 画像"
+            state = res.state
+
+
+def test_deg_maps_is_exp_minus_stat_pow_b0():
+    """出力の deg（deg1）は新コアの出力と同じ exp(-stat^B0)。温度・A は使わない。"""
+    s = engine.StressState.zeros(2, 3)
+    s.r[:] = 0.5
+    s.g[:] = 2.0
+    mp = Recipe().model_param
+    mp["A"] = [0.01, 0.01, 0.01]                    # A を入れても deg1 には効かない
+    deg = _model().deg_maps(s, np.full((2, 3), 350.0), mp)
+    assert np.allclose(deg["r"], np.exp(-(0.5 ** mp["B0"][0])))
+    assert np.allclose(deg["g"], np.exp(-(2.0 ** mp["B0"][1])))
+    assert np.allclose(deg["b"], 1.0)
+
+
+def test_deg2_written_to_outputs_and_checkpoint():
+    with tempfile.TemporaryDirectory() as d:
+        f = _folders(d)
+        r = Recipe(recipe_name="age01", input_image=_STILL, step_type="aging", heatmap_mode="fixed")
+        r.sim_param["ACCEL_RATIO"] = 100.0
+        r.sim_param["AGING_TIME"] = 300.0          # 3フレーム
+        res = engine.run_recipe(recipe=r, folders=f, sequence_name="T", nn="01", model=_model())
+        assert res.deg2 is not None and res.deg2.shape == (270, 480)
+        # コアが deg2 を書き込んでいる（初期値 1.0 から変わる。サブモデルの表によっては 1 を少し超える）
+        assert np.all(res.deg2.r != 1.0)
+        out = engine.write_recipe_outputs(result=res, folders=f, sequence_name="T",
+                                          model=_model(), model_param=r.model_param)
+        assert Path(out["deg2_g"]).name == "T_01_age01_deg2_g.csv"
+        assert np.array_equal(np.loadtxt(out["deg2_g"], delimiter=","), res.deg2.g)
+
+        ctl = engine.RunControl()
+
+        def cb(fd, ft, prev):
+            if fd >= 2:
+                ctl.request_stop()
+
+        res1 = engine.run_recipe(recipe=r, folders=f, sequence_name="S", nn="01",
+                                 model=_model(), control=ctl, progress_cb=cb)
+        st, out1 = engine.write_stop_checkpoint(result=res1, folders=f, sequence_name="S",
+                                                model=_model(), model_param=r.model_param,
+                                                timestamp="261118-1200")
+        base = Path(d) / st.dir
+        assert out1["deg2_b"] == base / "deg2_b.csv" and out1["deg2_b"].exists()
+        assert engine.stop_checkpoint_outputs(f, st)["deg2_r"] == base / "deg2_r.csv"
+        # deg2 の無い停止（フェーズF より前）でも ⑤ 用の outputs は作れる
+        for c in "rgb":
+            (base / f"deg2_{c}.csv").unlink()
+        assert "deg2_r" not in engine.stop_checkpoint_outputs(f, st)
+
+
+def test_core_sim_dict_defaults_and_gadj():
+    d = engine.core_sim_dict({"ACCEL_RATIO": 1.0, "TMP_L": 25.0, "TMP_H": 60.0, "AGING_TIME": 0.0})
+    assert d["DBV_NIT"] == 2000.0 and d["DPK_ON"] == 0                  # 決定済みの既定値
+    assert (d["GADJ_R"], d["GADJ_G"], d["GADJ_B"]) == (1.0, 1.0, 1.0)
+    d2 = engine.core_sim_dict({"DBV_NIT": 6500, "DPK_ON": 1.0, "GADJ": [1.1, 1.2, 1.3]})
+    assert d2["DPK_ON"] == 1 and isinstance(d2["DPK_ON"], int)
+    assert (d2["GADJ_R"], d2["GADJ_G"], d2["GADJ_B"]) == (1.1, 1.2, 1.3) and "GADJ" not in d2
+
+
+def test_band_data_cached_per_dbv_and_dpk():
+    m = engine.CoreModel()
+    calls = []
+    orig = m._core.burn_in_band_extract
+
+    def spy(*a):
+        calls.append(1)
+        return orig(*a)
+
+    m._core.burn_in_band_extract = spy
+    try:
+        sim = engine.core_sim_dict({})
+        b1 = m.band_data(sim)
+        assert m.band_data(dict(sim, GADJ_R=1.5)) is b1        # GADJ は Band 選択に関係しない
+        assert len(calls) == 1
+        m.band_data(dict(sim, DBV_NIT=500.0))
+        m.band_data(dict(sim, DPK_ON=1))
+        assert len(calls) == 3
+    finally:
+        m._core.burn_in_band_extract = orig
+
+
+def test_core_model_reports_bad_panel_files():
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            engine.CoreModel(sm_path=Path(d) / "no_such_sm.csv")
+        except engine.EngineError as e:
+            assert "no_such_sm.csv" in str(e)
+        else:
+            raise AssertionError("読めないサブモデルで EngineError が出るべき")

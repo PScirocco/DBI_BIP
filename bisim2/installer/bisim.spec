@@ -19,8 +19,8 @@ datas = [
     # 劣化コア（暫定モデル）。engine._load_burn_fn がこの main.py をファイルパスで直接ロードする。
     (str(SRC / "main.py"), "source"),
     (str(SRC / "load_com_info.py"), "source"),
-    (str(SRC / "dbi_conf"), "source/dbi_conf"),          # degparam_mm.csv / simconf.csv
-    (str(SRC / "dbi_input"), "source/dbi_input"),         # bcsetting.csv
+    (str(SRC / "dbi_conf"), "source/dbi_conf"),          # bcsetting.csv / degparam_mm.csv / degparam_sm.csv（新コア）
+    (str(SRC / "dbi_input"), "source/dbi_input"),         # simconf.csv
 ]
 # 小さいサンプル入力だけ同梱（大きい原寸動画 input.* / mov_001.mp4 は入れない）
 for _f in ("mov_001_480x270.mp4", "mov_ht_001_480x270.mp4", "eval_img.png", "eval_img_ht.png"):

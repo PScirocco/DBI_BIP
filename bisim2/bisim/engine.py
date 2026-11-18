@@ -1,7 +1,8 @@
 """劣化エンジン（T4）
 
 - ``DegradationModel``  : 差し替え点（Protocol）。1フレーム更新 ＋ 劣化率マップ算出
-- ``MasterModel``       : ``source/main.py`` の関数をラップした現行の暫定モデル
+- ``CoreModel``         : ``source/main.py``（新コア ``burn_in_core``。フェーズF）をラップしたモデル
+- ``RGBMaps``           : 画素ごと・RGB 別のマップ（deg2 の受け取りなど）
 - ``StressState``       : 累積ストレス(stat_r/g/b) の保持・CSV load/save・shape検証
 - ``RunControl``        : UIスレッドからの 中断・再開・停止
 - ``run_recipe``        : 1レシピ（動画1本 or 静止画1枚）のフレームループ
@@ -28,11 +29,12 @@ import numpy as np
 
 from bisim import imio, naming, paramio
 from bisim.model import CHECKPOINT_ROOT, Recipe, Sequence, StopState
-from bisim.paths import SOURCE_DIR
+from bisim.paths import SOURCE_DIR, STD_BCSET, STD_DEGPARAM_SM
 
 # 停止チェックポイント内の素のファイル名（フォルダ名が識別子。日時なし・常に最新1件）
 _CKPT_STAT = {c: f"stat_{c}.csv" for c in "rgb"}
 _CKPT_DEG = {c: f"deg_{c}.csv" for c in "rgb"}
+_CKPT_DEG2 = {c: f"deg2_{c}.csv" for c in "rgb"}
 _CKPT_MOVIE = "movie.mp4"
 _CKPT_IMAGE = "image.png"
 
@@ -45,7 +47,9 @@ class EngineError(RuntimeError):
 #  累積ストレス状態
 # --------------------------------------------------------------------------- #
 @dataclass(eq=False)
-class StressState:
+class RGBMaps:
+    """画素ごと・RGB 別のマップ 3 枚（各 (h, w) の float 配列）。"""
+
     r: np.ndarray
     g: np.ndarray
     b: np.ndarray
@@ -58,17 +62,26 @@ class StressState:
         return {"r": self.r, "g": self.g, "b": self.b}[c]
 
     @classmethod
-    def zeros(cls, height: int, width: int) -> "StressState":
-        return cls(*(np.zeros((height, width), dtype=float) for _ in range(3)))
+    def full(cls, height: int, width: int, value: float):
+        return cls(*(np.full((height, width), float(value), dtype=float) for _ in range(3)))
 
     @classmethod
-    def load(cls, path_r, path_g, path_b) -> "StressState":
+    def zeros(cls, height: int, width: int):
+        return cls.full(height, width, 0.0)
+
+    @classmethod
+    def load(cls, path_r, path_g, path_b):
         return cls(_load_csv_map(path_r), _load_csv_map(path_g), _load_csv_map(path_b))
 
     def save(self, path_r, path_g, path_b) -> None:
         np.savetxt(str(path_r), self.r, delimiter=",")
         np.savetxt(str(path_g), self.g, delimiter=",")
         np.savetxt(str(path_b), self.b, delimiter=",")
+
+
+@dataclass(eq=False)
+class StressState(RGBMaps):
+    """累積ストレス stat_r/g/b（ステップ間で引き継ぐ）。"""
 
     def require_shape(self, height: int, width: int) -> None:
         if self.shape != (height, width):
@@ -91,28 +104,34 @@ class DegradationModel(Protocol):
     name: str
 
     def update(self, dt: float, img_bgr: np.ndarray, ht_bgr: np.ndarray,
-               state: StressState, model_param: dict, sim_param: dict) -> None:
-        """img_bgr を劣化画像にインプレース更新し、state を dt ぶん進める。"""
+               state: StressState, model_param: dict, sim_param: dict,
+               deg2: "Optional[RGBMaps]" = None) -> None:
+        """img_bgr を劣化画像にインプレース更新し、state を dt ぶん進める。
+
+        ``deg2`` が渡されたら、今回のフレームのサブモデルの輝度残存率で中身を上書きする。
+        """
 
     def deg_maps(self, state: StressState, temp_kelvin: np.ndarray,
                  model_param: dict) -> dict:
-        """現在の state から劣化率マップ ``{"r":arr, "g":arr, "b":arr}`` を返す。"""
+        """現在の state から輝度残存率マップ（deg1）``{"r":arr, "g":arr, "b":arr}`` を返す。"""
 
 
-_BURN_FN = None
+_CORE_MOD = None
 
 
-def _load_burn_fn():
-    """``source/main.py`` の ``temp_update_stat_and_burn_img`` を取得する。
+def _load_core():
+    """``source/main.py``（新コア）をモジュールとして読み込んで返す。
 
     PyInstaller で固めた EXE でも確実に動くよう、まず ``SOURCE_DIR/main.py`` を
     **ファイルパスから直接ロード**する。``import main`` は他パッケージのトップレベル
     モジュール名と衝突しやすく、frozen 環境では frozen 用インポータが優先されて
     別の ``main`` を掴むことがあるため使わない。
+    使う関数：``burn_in_core``・``burn_in_band_extract``、``main.py`` が import している
+    ``load_com_info``（属性名 ``com_info``）の ``load_bcset``・``load_degparam_sm``。
     """
-    global _BURN_FN
-    if _BURN_FN is not None:
-        return _BURN_FN
+    global _CORE_MOD
+    if _CORE_MOD is not None:
+        return _CORE_MOD
 
     src = str(SOURCE_DIR)
     if src not in sys.path:
@@ -121,7 +140,7 @@ def _load_burn_fn():
     main_py = SOURCE_DIR / "main.py"
     if main_py.is_file():
         import importlib.util
-        modname = "bisim_master_source"
+        modname = "bisim_core_source"
         spec = importlib.util.spec_from_file_location(modname, str(main_py))
         mod = importlib.util.module_from_spec(spec)
         sys.modules[modname] = mod
@@ -130,51 +149,109 @@ def _load_burn_fn():
         except Exception as e:  # noqa: BLE001
             raise EngineError(
                 f"劣化コア {main_py} の読み込みに失敗: {type(e).__name__}: {e}") from e
-        fn = getattr(mod, "temp_update_stat_and_burn_img", None)
-        if fn is None:
-            raise EngineError(f"{main_py} に temp_update_stat_and_burn_img が無い")
-        _BURN_FN = fn
-        return fn
-
-    # フォールバック: モジュール検索（source/ が sys.path 上にある開発環境）
-    import importlib
-    try:
-        m = importlib.import_module("main")
-    except ImportError as e:
+        where = str(main_py)
+    else:
+        # フォールバック: モジュール検索（source/ が sys.path 上にある開発環境）
+        import importlib
+        try:
+            mod = importlib.import_module("main")
+        except ImportError as e:
+            raise EngineError(
+                f"劣化コア main.py が見つかりません（SOURCE_DIR={SOURCE_DIR}）: {e}") from e
+        where = f"import した main（{getattr(mod, '__file__', '?')}）"
+    missing = [n for n in ("burn_in_core", "burn_in_band_extract", "com_info")
+               if not hasattr(mod, n)]
+    if missing:
         raise EngineError(
-            f"劣化コア main.py が見つかりません（SOURCE_DIR={SOURCE_DIR}）: {e}") from e
-    fn = getattr(m, "temp_update_stat_and_burn_img", None)
-    if fn is None:
-        raise EngineError(
-            f"import した main（{getattr(m, '__file__', '?')}）に "
-            f"temp_update_stat_and_burn_img が無い（別モジュールを掴んでいる可能性）")
-    _BURN_FN = fn
-    return fn
+            f"{where} に {', '.join(missing)} が無い（新コアではない／別モジュールを掴んでいる可能性）")
+    _CORE_MOD = mod
+    return mod
 
 
-class MasterModel:
-    """``source/main.py`` の ``temp_update_stat_and_burn_img`` をラップ（暫定モデル）。"""
+# 新コアの Sim 条件のうち、レシピに無いときに使う既定値（2026-11-17 決定）。
+# 手順5-1 でレシピ（model.Recipe.sim_param）に持たせるまでの暫定。
+CORE_SIM_DEFAULTS = {"DBV_NIT": 2000.0, "DPK_ON": 0,
+                     "GADJ_R": 1.0, "GADJ_G": 1.0, "GADJ_B": 1.0}
 
-    name = "master"
 
-    def __init__(self) -> None:
-        self._fn = _load_burn_fn()
+def core_sim_dict(sim_param: dict) -> dict:
+    """bisim の Sim 条件を ``burn_in_core`` の ``simconf_dict`` の形にする。
 
-    def update(self, dt, img_bgr, ht_bgr, state, model_param, sim_param) -> None:
+    無い項目は ``CORE_SIM_DEFAULTS`` で補う。``GADJ`` が ``[r, g, b]`` で来たら
+    ``GADJ_R/G/B`` に分ける（``load_com_info.load_simconf`` と同じ形）。
+    """
+    d = dict(CORE_SIM_DEFAULTS)
+    d.update(sim_param)
+    gadj = d.pop("GADJ", None)
+    if gadj is not None:
+        d["GADJ_R"], d["GADJ_G"], d["GADJ_B"] = (float(x) for x in gadj)
+    d["DBV_NIT"] = float(d["DBV_NIT"])
+    d["DPK_ON"] = int(d["DPK_ON"])
+    return d
+
+
+class CoreModel:
+    """新コア（``source/main.py`` の ``burn_in_core``）をラップしたモデル（フェーズF）。
+
+    - パネル設定（bcsetting・サブモデル degparam_sm）は作成時に読み込む
+      （手順5 でシーケンスに持たせるまでは標準ファイル ``source/dbi_conf/``）。
+      マスターモデルのパラメータ（mm）は今までどおりレシピの ``model_param``。
+    - Band 選択（``burn_in_band_extract``）は画像に依らず ``DBV_NIT``・``DPK_ON`` だけで
+      決まるので、その組ごとに1回だけ計算して覚えておく。
+    - ``deg_maps``（deg1）は新コアの出力と同じ ``exp(-stat^B0)``（温度は使わない）。
+    """
+
+    name = "core01"
+
+    def __init__(self, bcset_path=None, sm_path=None, log=None) -> None:
+        self._core = _load_core()
+        self.log = log
+        self.bcset_path = Path(bcset_path or STD_BCSET)
+        self.sm_path = Path(sm_path or STD_DEGPARAM_SM)
+        ci = self._core.com_info
+        rc_bc, self.bc_dict = ci.load_bcset(str(self.bcset_path))
+        rc_sm, self.sm_dict = ci.load_degparam_sm(str(self.sm_path))
+        bad = [str(p) for rc, p in ((rc_bc, self.bcset_path), (rc_sm, self.sm_path)) if rc != 0]
+        if bad:
+            raise EngineError("パネル設定ファイルを読めません: " + " / ".join(bad))
+        sm_band = self.sm_dict["DEG_2D_BC_IxDEG_R"].shape[0]
+        if sm_band != self.bc_dict["BC_BAND_NUM"]:
+            raise EngineError(
+                f"Band 数が一致しません: サブモデル {self.sm_path.name}={sm_band}, "
+                f"bcsetting {self.bcset_path.name}（BC_BAND_NUM）={self.bc_dict['BC_BAND_NUM']}")
+        self._band_cache: dict = {}
+
+    def band_data(self, sim: dict) -> dict:
+        """``burn_in_core`` に渡す Band 間補間用データ（``DBV_NIT``・``DPK_ON`` ごとにキャッシュ）。"""
+        key = (float(sim["DBV_NIT"]), int(sim["DPK_ON"]))
+        band = self._band_cache.get(key)
+        if band is None:
+            rc, band, blog = self._core.burn_in_band_extract(self.bc_dict, self.sm_dict, sim)
+            if rc != 0:
+                raise EngineError(
+                    f"Band 選択（burn_in_band_extract）に失敗: DBV_NIT={key[0]:g}, DPK_ON={key[1]}"
+                    + (f"\n{blog.rstrip()}" if blog else ""))
+            self._band_cache[key] = band
+            if self.log:
+                self.log.action(f"Band 選択 DBV_NIT={key[0]:g} DPK_ON={key[1]}\n{blog.rstrip()}")
+        return band
+
+    def update(self, dt, img_bgr, ht_bgr, state, model_param, sim_param, deg2=None) -> None:
         mm = paramio.to_mm_dict(model_param)
-        rc = self._fn(dt, img_bgr, ht_bgr, {}, mm,
-                      simconf_dict=dict(sim_param),
-                      stat_r=state.r, stat_g=state.g, stat_b=state.b)
+        sim = core_sim_dict(sim_param)
+        kw = {}
+        if deg2 is not None:
+            kw = {"deg2_r": deg2.r, "deg2_g": deg2.g, "deg2_b": deg2.b}
+        rc = self._core.burn_in_core(
+            dt, img_bgr, ht_bgr, self.bc_dict, mm, self.sm_dict, sim,
+            stat_r=state.r, stat_g=state.g, stat_b=state.b,
+            **self.band_data(sim), **kw)
         if rc != 0:
-            raise EngineError("temp_update_stat_and_burn_img rtn=-1")
+            raise EngineError("劣化コア burn_in_core が異常終了（rtn=-1）")
 
     def deg_maps(self, state, temp_kelvin, model_param) -> dict:
         mm = paramio.to_mm_dict(model_param)
-        out = {}
-        for c in "rgb":
-            b0, a = mm[f"B0_{c}"], mm[f"A_{c}"]
-            out[c] = np.exp(-1.0 * (state.channel(c) ** (b0 + a * temp_kelvin)))
-        return out
+        return {c: np.exp(-1.0 * (state.channel(c) ** mm[f"B0_{c}"])) for c in "rgb"}
 
 
 # --------------------------------------------------------------------------- #
@@ -220,6 +297,7 @@ class RunResult:
     stopped: bool
     state: StressState          # 実行後の累積ストレス（メモリ保持）
     temp_kelvin: np.ndarray     # 最終フレームの温度マップ（deg 計算用）
+    deg2: Optional[RGBMaps] = None  # サブモデルの輝度残存率（最後に処理したフレームの値。未処理なら 1.0）
     outputs: dict = field(default_factory=dict)
     cumulative_aging_seconds: float = 0.0
     resumed_from: int = 0          # 停止位置から再開したときの開始フレーム（絶対）
@@ -442,6 +520,8 @@ def run_recipe(
     else:
         state = initial_state
         state.require_shape(height, width)
+    # サブモデルの輝度残存率 deg2（次のステップには引き継がない。フレームごとにコアが上書き）
+    deg2 = RGBMaps.full(height, width, 1.0)
 
     last_temp = np.full((height, width), tmp_l_k, dtype=float)
     aging_seconds = float(resume_aging_seconds)
@@ -533,7 +613,7 @@ def run_recipe(
                 ht = _next_ht(use_target)
                 if ht is None:
                     break
-                model.update(dt, img, ht, state, recipe.model_param, sim)
+                model.update(dt, img, ht, state, recipe.model_param, sim, deg2=deg2)
                 last_temp = _temp(ht)
                 if writer is not None:
                     writer.write(img)
@@ -558,7 +638,7 @@ def run_recipe(
             stopped = True
         else:
             ht0_eff = _next_ht(False)
-            model.update(0.0, img0, ht0_eff, state, recipe.model_param, sim)
+            model.update(0.0, img0, ht0_eff, state, recipe.model_param, sim, deg2=deg2)
             last_temp = _temp(ht0_eff)
             frames_done = 1
             img_last = img0
@@ -572,7 +652,7 @@ def run_recipe(
         recipe_name=recipe.recipe_name, nn=nn, is_movie=is_movie,
         size=(width, height), frames_total=reported_frames_total, frames_done=frames_done,
         aging_seconds=aging_seconds, stopped=stopped, state=state, temp_kelvin=last_temp,
-        resumed_from=start, dt_accel=dt_accel,
+        deg2=deg2, resumed_from=start, dt_accel=dt_accel,
     )
     res._tmp_video = tmp_video
     res._img_bgr = None if is_movie else img_last
@@ -618,6 +698,10 @@ def write_recipe_outputs(
         np.savetxt(str(dp), deg[c], delimiter=",")
         np.savetxt(str(sp), result.state.channel(c), delimiter=",")
         outputs[f"deg_{c}"], outputs[f"stat_{c}"] = dp, sp
+        if result.deg2 is not None:
+            d2p = outp("deg2", c)
+            np.savetxt(str(d2p), result.deg2.channel(c), delimiter=",")
+            outputs[f"deg2_{c}"] = d2p
 
     result.outputs = outputs
     if log:
@@ -651,7 +735,8 @@ def write_stop_checkpoint(
     """停止時のチェックポイントを ``<output>/_stops/<dir>/`` に素のファイル名で書く。
 
     戻り値 ``(StopState, outputs)``。``outputs`` は ⑤結果タブがプレビュー／マップに
-    使う ``{"movie"|"image", "deg_{c}", "stat_{c}"}`` → :class:`pathlib.Path`。
+    使う ``{"movie"|"image", "deg_{c}", "stat_{c}", "deg2_{c}"}`` → :class:`pathlib.Path`。
+    （deg2 は再開には使わない。再開後の最初のフレームでコアが計算し直す）
     既存の同一チェックポイントがあれば作り直す（常に最新1件）。
     """
     seq, nn, rc = sequence_name, result.nn, result.recipe_name
@@ -679,6 +764,10 @@ def write_stop_checkpoint(
         np.savetxt(str(dp), deg[c], delimiter=",")
         np.savetxt(str(sp), result.state.channel(c), delimiter=",")
         outputs[f"deg_{c}"], outputs[f"stat_{c}"] = dp, sp
+        if result.deg2 is not None:
+            d2p = ckpt / _CKPT_DEG2[c]
+            np.savetxt(str(d2p), result.deg2.channel(c), delimiter=",")
+            outputs[f"deg2_{c}"] = d2p
 
     rel = f"{CHECKPOINT_ROOT}/{ckpt.name}"
     st = StopState(
@@ -699,6 +788,8 @@ def stop_checkpoint_outputs(folders: dict, st: StopState) -> dict:
     for c in "rgb":
         outputs[f"deg_{c}"] = base / _CKPT_DEG[c]
         outputs[f"stat_{c}"] = base / _CKPT_STAT[c]
+        if (base / _CKPT_DEG2[c]).exists():         # deg2 が無い（フェーズF より前の）停止にも対応
+            outputs[f"deg2_{c}"] = base / _CKPT_DEG2[c]
     if st.is_movie and (base / _CKPT_MOVIE).exists():
         outputs["movie"] = base / _CKPT_MOVIE
     elif (base / _CKPT_IMAGE).exists():

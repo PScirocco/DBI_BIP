@@ -33,13 +33,14 @@ def test_packaging_files_present_and_compile():
     assert '"load_com_info"' in _hi
 
 
-def test_engine_loads_master_by_file_path():
-    """engine._load_burn_fn が source/main.py を掴めること（frozen 相当の経路）。"""
+def test_engine_loads_core_by_file_path():
+    """engine._load_core が source/main.py（新コア）を掴めること（frozen 相当の経路）。"""
     from bisim import engine
-    engine._BURN_FN = None
-    fn = engine._load_burn_fn()
-    assert callable(fn)
-    assert fn.__name__ == "temp_update_stat_and_burn_img"
+    engine._CORE_MOD = None
+    mod = engine._load_core()
+    assert mod.__file__ == str(paths.SOURCE_DIR / "main.py")
+    assert mod.burn_in_core.__name__ == "burn_in_core"
+    assert callable(mod.burn_in_band_extract) and callable(mod.com_info.load_degparam_sm)
 
 
 def test_spec_bundles_existing_sample_inputs():
@@ -50,8 +51,10 @@ def test_spec_bundles_existing_sample_inputs():
         assert (common / f).exists(), f"{f} が無い"
     assert (_REPO / "source" / "main.py").exists()
     assert (_REPO / "source" / "load_com_info.py").exists()
-    assert (_REPO / "source" / "dbi_conf" / "degparam_mm.csv").exists()
-    assert (_REPO / "source" / "dbi_input" / "bcsetting.csv").exists()
+    # 新コアの標準ファイル（フェーズF）：パネル設定は dbi_conf、Sim 条件は dbi_input
+    for f in ("bcsetting.csv", "degparam_mm.csv", "degparam_sm.csv"):
+        assert (_REPO / "source" / "dbi_conf" / f).exists(), f
+    assert (_REPO / "source" / "dbi_input" / "simconf.csv").exists()
 
 
 def test_default_output_switches_when_frozen():

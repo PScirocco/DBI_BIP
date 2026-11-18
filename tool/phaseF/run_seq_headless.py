@@ -7,7 +7,7 @@ from bisim import engine
 from bisim.model import Sequence
 seq = Sequence.load(sys.argv[2])
 seq.folders["output"] = str(Path(sys.argv[3]).resolve())
-model = engine.MasterModel()
+model = engine.CoreModel()
 t0 = time.time()
 def done(res):
     engine.write_recipe_outputs(result=res, folders=seq.folders, sequence_name=seq.sequence_name,

@@ -411,7 +411,7 @@ class MainWindow(QMainWindow):
         if self.model is not None:
             return True
         try:
-            self.model = engine.MasterModel()
+            self.model = engine.CoreModel(log=self.logger)
         except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, t("dlg.err.title"),
                                  f"{type(e).__name__}: {e}")

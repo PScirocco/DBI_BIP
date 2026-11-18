@@ -9,7 +9,7 @@
 パースは一意に行える。
 
 種別トークンについて:
-- ``deg`` / ``stat`` は色別（r/g/b）。
+- ``deg`` / ``deg2`` / ``stat`` は色別（r/g/b）。``deg2`` はサブモデルの輝度残存率（フェーズF の新コア）。
 - ``model-param`` / ``sim-param`` は CLI 版（source/load_com_info.py）と互換の
   単一ファイル（色なし）を想定。※仕様 4 の例 ``_model-param_r`` は要確認。
 """
@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-KINDS = ("deg", "stat", "movie", "image", "model-param", "sim-param")
+KINDS = ("deg", "deg2", "stat", "movie", "image", "model-param", "sim-param")
 COLORS = ("r", "g", "b")
 
 _TS_FMT = "%y%m%d-%H%M"

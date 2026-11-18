@@ -21,7 +21,9 @@ copy receive\Burn_in_sim_core_01\main.py, load_com_info.py と dbi_common\ dbi_c
 | `check_deg2.py` | `<work>\core_new` `receive\Burn_in_sim_core_01\dbi_output` | 先に `check_extract.py` を実行しておく。入力画像 × deg × `deg2_*.csv` で出力画像を再現できるか（deg2 CSV が画像に使われた値か） |
 | `check_deg2_movie.py` | `<work>\core_new` | 先に動画を CLI で idx=20 として実行しておく（`main.py mov_001_480x270.mp4 mov_ht_001_480x270.mp4 bcsetting.csv degparam_mm.csv degparam_sm.csv simconf_2000_aging.csv 0 0 0 0 0 20`）。`20_deg2_*.csv` が最終フレームの値かを確認 |
 | `check_resume.py` | `<work>\core_new` `<work>` | 動画 40 フレームを一気に計算した結果と、17 フレームで止めて stat だけ CSV 保存→読み戻して再開した結果を比較 |
-| `run_seq_headless.py` | `bisim2` `<seq.json>` `<出力フォルダ>` | シーケンスを画面なしで実行（GUI と同じ `run_sequence` → `write_recipe_outputs`）。出力先だけ差し替える。手順2の基準データ作成に使用。**今は旧コアの `engine.MasterModel` を使う**ので、新コア組み込み後はモデルのクラス名を合わせる |
+| `run_seq_headless.py` | `bisim2` `<seq.json>` `<出力フォルダ>` | シーケンスを画面なしで実行（GUI と同じ `run_sequence` → `write_recipe_outputs`）。出力先だけ差し替える。手順2の基準データ作成に使用（当時は旧コアの `engine.MasterModel`）。2026-11-18 から新コアの `engine.CoreModel` |
+| `check_engine_cases.py` | `bisim2` `receive\Burn_in_sim_core_01` `<出力フォルダ>` | 11 ケースを bisim のエンジンで実行して松井さんの `dbi_output` と比較（stat・deg・画像）。deg2 の出力も確認 |
+| `make_selftest_core_data.py` | `bisim2` `receive\Burn_in_sim_core_01` | selftest の基準データ `bisim2/bisim/tests/data/core01_case1-2.npz` を作る。松井さんのケース1→2（DPK_ON=0）の各象限から 8×8 を取り 16×16 に並べたもの（入力・stat・deg・出力画像は松井さんの出力、deg2 は bisim 側の deg2 出力）。`receive/` には書き込まない |
 
 ## 2026-11-17 時点の結果
 
@@ -29,3 +31,8 @@ copy receive\Burn_in_sim_core_01\main.py, load_com_info.py と dbi_common\ dbi_c
 - `check_deg2.py`：再現の差 0 階調
 - `check_deg2_movie.py`：最終フレームとの差 0
 - `check_resume.py`：stat・全フレーム画像とも差 0（DPK OFF／ON）
+
+## 2026-11-18（手順4）の結果
+
+- bisim のエンジン（`run_recipe` → `write_recipe_outputs`）で 11 ケースを実行（テストステップは「Aging・静止画（fps=1）」）：stat・deg・出力画像とも差 0、deg2 の CSV も出力。
+  スクリプトは `check_engine_cases.py`（引数 `bisim2` `receive\Burn_in_sim_core_01` `<出力フォルダ>`）。手順6 の結合試験でも使う
