@@ -9,11 +9,14 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from bisim.paths import APP_DIR, DEFAULT_FOLDERS, FOLDER_KEYS
+from bisim.paths import APP_DIR, DEFAULT_FOLDERS, FOLDER_KEYS, STD_BCSET, STD_DEGPARAM_SM
 
 # ---- 既定値（dbi_conf の現行値。CLI 版と同じ）----
 MODEL_KEYS = ["N", "K0", "Q", "B0", "A"]      # 各 [R, G, B]
-SIM_KEYS = ["AGING_TIME", "ACCEL_RATIO", "TMP_L", "TMP_H"]
+# Sim 条件（simconf.csv 相当。ステップごとに設定する）。DBV_NIT・DPK_ON・GADJ は新コア（フェーズF）で追加
+SIM_KEYS = ["AGING_TIME", "ACCEL_RATIO", "TMP_L", "TMP_H", "DBV_NIT", "DPK_ON", "GADJ"]
+SIM_RGB_KEYS = ("GADJ",)       # 値が [R, G, B] の3つ
+SIM_INT_KEYS = ("DPK_ON",)     # 整数（0/1）
 
 DEFAULT_MODEL: dict[str, list[float]] = {
     "N":  [1.5, 1.3, 1.7],
@@ -22,14 +25,44 @@ DEFAULT_MODEL: dict[str, list[float]] = {
     "B0": [0.7, 0.8, 0.4],
     "A":  [0.0, 0.0, 0.0],
 }
-DEFAULT_SIM: dict[str, float] = {
+DEFAULT_SIM: dict = {
     # 目標 Aging 時間 [秒]（仕様 5-③）。超過なら打切り、不足なら動画を周回連結して埋める。
     # 既定 0 ＝無制限（＝従来どおり動画を1周回のみ処理。明示的に設定するまでは無効）
     "AGING_TIME": 0.0,
     "ACCEL_RATIO": 30000.0,
     "TMP_L": 25.0,
     "TMP_H": 60.0,
+    # 新コアの表示条件（2026-11-17 決定の既定値）。PQ評価のステップでも使う
+    "DBV_NIT": 2000.0,         # パネルの輝度設定（DBV を輝度[nit]で指定）
+    "DPK_ON": 0,               # DPK モード 1=ON / 0=OFF
+    "GADJ": [1.0, 1.0, 1.0],   # 電流調整（GI_LUT の電流を何倍にするか。R/G/B）
 }
+
+
+def parse_sim_value(key: str, value):
+    """Sim 条件1項目の値を正しい型にする（``GADJ``＝3つの float、``DPK_ON``＝0/1、他＝float）。
+
+    変換できなければ ``ValueError``。
+    """
+    if key in SIM_RGB_KEYS:
+        if not isinstance(value, (list, tuple)) or len(value) != 3:
+            raise ValueError(f"{key} は R/G/B の3つの値: {value!r}")
+        return [float(x) for x in value]
+    if key in SIM_INT_KEYS:
+        v = int(float(value))
+        if v not in (0, 1):
+            raise ValueError(f"{key} は 0 か 1: {value!r}")
+        return v
+    return float(value)
+
+
+def parse_model_param(d) -> dict:
+    """mm（マスターモデル）の辞書を読み込む。欠け・不正な項目は既定値で補う。"""
+    model = _fresh_model()
+    for k, v in (d or {}).items():
+        if k in MODEL_KEYS and isinstance(v, (list, tuple)) and len(v) == 3:
+            model[k] = [float(x) for x in v]
+    return model
 
 INIT_STRESS = ("none", "prev", "file")
 # ステップ種別（手動選択）: aging＝ストレスを貯める / eval＝貯めない（劣化後の見え方だけ作る）
@@ -46,8 +79,8 @@ def _fresh_model() -> dict[str, list[float]]:
     return {k: list(v) for k, v in DEFAULT_MODEL.items()}
 
 
-def _fresh_sim() -> dict[str, float]:
-    return dict(DEFAULT_SIM)
+def _fresh_sim() -> dict:
+    return {k: (list(v) if isinstance(v, list) else v) for k, v in DEFAULT_SIM.items()}
 
 
 def _fresh_folders() -> dict[str, str]:
@@ -120,8 +153,8 @@ class Recipe:
     heatmap: str = ""
     heatmap_mode: str = "file"            # file | fixed（ヒートマップなし・固定温度）
     fixed_temp_c: float = 25.0            # heatmap_mode="fixed" のときのパネル全面温度[℃]
-    model_param: dict = field(default_factory=_fresh_model)    # インライン値
-    model_param_csv: str = ""             # 参照CSVファイル名（CLI互換・任意）
+    # マスターモデルのパラメータ（mm）はフェーズF からシーケンスのパネル設定（PanelConfig）に移した
+    # （mm・sm は機種ごと。2026-11-18 決定）。旧 JSON の model_param は Sequence.from_dict が移す
     sim_param: dict = field(default_factory=_fresh_sim)
     sim_param_csv: str = ""
     init_stress: str = "none"             # none | prev | file
@@ -130,6 +163,9 @@ class Recipe:
     # 空のまま作ると入力ファイルの拡張子から決める（.png→eval、それ以外→aging）。
     # 種別の欄が無い旧 JSON も同じ規則で読み込むので、従来のシーケンスは同じ動作になる。
     step_type: str = ""
+    # サブモデル（degparam_sm.csv）をこのステップだけ差し替える（任意。①のモデルフォルダのファイル名）。
+    # 空＝シーケンスのパネル設定の sm。表示（deg2）だけに効き、stat には影響しない（2026-11-18 決定）
+    sm_override: str = ""
 
     def __post_init__(self) -> None:
         if self.step_type not in STEP_TYPES:
@@ -154,13 +190,14 @@ class Recipe:
             problems.append(f"heatmap_mode が不正: {self.heatmap_mode!r}")
         if self.step_type not in STEP_TYPES:
             problems.append(f"step_type が不正: {self.step_type!r}")
-        for k in MODEL_KEYS:
-            v = self.model_param.get(k)
-            if not (isinstance(v, list) and len(v) == 3):
-                problems.append(f"model_param[{k}] は3要素リストであること")
         for k in SIM_KEYS:
             if k not in self.sim_param:
                 problems.append(f"sim_param[{k}] が無い")
+                continue
+            try:
+                parse_sim_value(k, self.sim_param[k])
+            except (TypeError, ValueError):
+                problems.append(f"sim_param[{k}] が不正: {self.sim_param[k]!r}")
         if self.init_stress == "file":
             for c in ("r", "g", "b"):
                 if not self.init_stress_files.get(c):
@@ -175,24 +212,23 @@ class Recipe:
             "heatmap": self.heatmap,
             "heatmap_mode": self.heatmap_mode,
             "fixed_temp_c": self.fixed_temp_c,
-            "model_param": {k: list(v) for k, v in self.model_param.items()},
-            "model_param_csv": self.model_param_csv,
-            "sim_param": dict(self.sim_param),
+            "sim_param": {k: (list(v) if isinstance(v, (list, tuple)) else v)
+                          for k, v in self.sim_param.items()},
             "sim_param_csv": self.sim_param_csv,
+            "sm_override": self.sm_override,
             "init_stress": self.init_stress,
             "init_stress_files": dict(self.init_stress_files),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "Recipe":
-        model = _fresh_model()
-        for k, v in (d.get("model_param") or {}).items():
-            if k in MODEL_KEYS and isinstance(v, (list, tuple)) and len(v) == 3:
-                model[k] = [float(x) for x in v]
         sim = _fresh_sim()
         for k, v in (d.get("sim_param") or {}).items():
             if k in SIM_KEYS:
-                sim[k] = float(v)
+                try:
+                    sim[k] = parse_sim_value(k, v)
+                except (TypeError, ValueError):
+                    pass                         # 不正な値は既定値のまま
         init = d.get("init_stress", "none")
         if init not in INIT_STRESS:
             init = "none"
@@ -213,10 +249,9 @@ class Recipe:
             heatmap=str(d.get("heatmap", "")),
             heatmap_mode=ht_mode,
             fixed_temp_c=fixed_temp_c,
-            model_param=model,
-            model_param_csv=str(d.get("model_param_csv", "")),
             sim_param=sim,
             sim_param_csv=str(d.get("sim_param_csv", "")),
+            sm_override=str(d.get("sm_override", "") or ""),
             init_stress=init,
             init_stress_files=dict(d.get("init_stress_files") or {}),
         )
@@ -231,6 +266,39 @@ class Recipe:
 
 # --------------------------------------------------------------------------- #
 @dataclass
+class PanelConfig:
+    """パネル設定（フェーズF）。シーケンスに1組（2026-11-17・11-18 決定）。
+
+    - 機種（劣化モデル）：マスターモデルの数値 ``model_param``（mm）、サブモデル ``degparam_sm``
+    - 個体（BC設定）：``bcsetting``
+    ファイルはファイル名だけを持ち、フォルダは ①の「BC設定」（bcsetting）・「モデル」（sm）。
+    """
+
+    bcsetting: str = STD_BCSET.name
+    degparam_sm: str = STD_DEGPARAM_SM.name
+    model_param: dict = field(default_factory=_fresh_model)
+    model_param_csv: str = ""             # mm を読み込んだ／保存した CSV のファイル名（表示用）
+
+    def to_dict(self) -> dict:
+        return {
+            "bcsetting": self.bcsetting,
+            "degparam_sm": self.degparam_sm,
+            "model_param": {k: list(v) for k, v in self.model_param.items()},
+            "model_param_csv": self.model_param_csv,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "PanelConfig":
+        return cls(
+            bcsetting=str(d.get("bcsetting") or STD_BCSET.name),
+            degparam_sm=str(d.get("degparam_sm") or STD_DEGPARAM_SM.name),
+            model_param=parse_model_param(d.get("model_param")),
+            model_param_csv=str(d.get("model_param_csv", "")),
+        )
+
+
+# --------------------------------------------------------------------------- #
+@dataclass
 class Sequence:
     """どのレシピをどの順で実行するか（仕様 3.2）。＝実行シーケンスConfig。"""
 
@@ -238,6 +306,9 @@ class Sequence:
     folders: dict = field(default_factory=_fresh_folders)
     recipes: list = field(default_factory=list)   # list[Recipe]
     stops: dict = field(default_factory=dict)     # NN文字列 -> StopState（停止状態を内包）
+    panel: PanelConfig = field(default_factory=PanelConfig)
+    # 読み込み時の注意（旧形式からの移行など）。保存しない。画面側がログに出す
+    load_warnings: list = field(default_factory=list, compare=False, repr=False)
 
     @staticmethod
     def recipe_number(index: int) -> str:
@@ -247,10 +318,37 @@ class Sequence:
     def index_of(self, recipe: "Recipe") -> int:
         return self.recipes.index(recipe)
 
+    # ---- パネル設定のファイル ----
+    def bcset_path(self) -> Path:
+        return Path(self.folders["bcset"]) / self.panel.bcsetting
+
+    def sm_path(self, index: "int | None" = None) -> Path:
+        """サブモデルのパス。``index`` のステップに差し替え（``sm_override``）があればそちら。"""
+        name = self.panel.degparam_sm
+        if index is not None and 0 <= index < len(self.recipes) and self.recipes[index].sm_override:
+            name = self.recipes[index].sm_override
+        return Path(self.folders["model"]) / name
+
+    def use_standard_panel_folders_if_missing(self) -> list:
+        """パネル設定のファイルがフォルダに無く、名前が標準ファイルと同じなら、標準のフォルダに切り替える。
+
+        別PCの ``bisim_app.json`` に古い既定フォルダが残っている場合などの救済。戻り値は変えた内容（ログ用）。
+        """
+        msgs = []
+        for key, name, std in (("bcset", self.panel.bcsetting, STD_BCSET),
+                               ("model", self.panel.degparam_sm, STD_DEGPARAM_SM)):
+            folder = Path(self.folders.get(key, ""))
+            if (folder / name).is_file() or name != std.name or not std.is_file():
+                continue
+            self.folders[key] = str(std.parent)
+            msgs.append(f"{name} が {folder} に無いため、標準のフォルダ {std.parent} にしました")
+        return msgs
+
     def to_dict(self) -> dict:
         d = {
             "sequence_name": self.sequence_name,
             "folders": {k: str(self.folders.get(k, "")) for k in FOLDER_KEYS},
+            "panel": self.panel.to_dict(),
             "recipes": [r.to_dict() for r in self.recipes],
         }
         if self.stops:
@@ -263,17 +361,48 @@ class Sequence:
         for k, v in (d.get("folders") or {}).items():
             if k in FOLDER_KEYS:
                 folders[k] = str(v)
-        recipes = [Recipe.from_dict(r) for r in (d.get("recipes") or [])
-                   if isinstance(r, dict)]
+        raw_recipes = [r for r in (d.get("recipes") or []) if isinstance(r, dict)]
+        recipes = [Recipe.from_dict(r) for r in raw_recipes]
         stops = {str(nn): StopState.from_dict(sd)
                  for nn, sd in (d.get("stops") or {}).items()
                  if isinstance(sd, dict)}
+        warnings: list = []
+        if isinstance(d.get("panel"), dict):
+            panel = PanelConfig.from_dict(d["panel"])
+        else:
+            panel, warnings = cls._migrate_panel(raw_recipes, folders)
         return cls(
             sequence_name=str(d.get("sequence_name", "sequence")),
             folders=folders,
             recipes=recipes,
             stops=stops,
+            panel=panel,
+            load_warnings=warnings,
         )
+
+    @staticmethod
+    def _migrate_panel(raw_recipes: list, folders: dict) -> tuple:
+        """パネル設定の無い旧 JSON（フェーズF より前）を読み込む（2026-11-17 決定）。
+
+        - bcsetting・sm は標準ファイル。BC設定・モデルのフォルダも標準のフォルダにする
+          （旧形式の bcsetting.csv が置かれたフォルダを指していることがあるため）
+        - mm はステップの ``model_param`` から。ステップごとに違えば1番目を採用して警告
+        """
+        panel = PanelConfig()
+        warnings = ["旧形式のシーケンス：パネル設定に標準ファイルを割り当てました"
+                    f"（{STD_BCSET.name}・{STD_DEGPARAM_SM.name}、フォルダ {STD_BCSET.parent}）"]
+        folders["bcset"] = str(STD_BCSET.parent)
+        folders["model"] = str(STD_DEGPARAM_SM.parent)
+        mms = [parse_model_param(r.get("model_param")) for r in raw_recipes]
+        if mms:
+            panel.model_param = mms[0]
+            panel.model_param_csv = str(raw_recipes[0].get("model_param_csv", "") or "")
+            differ = [i + 1 for i, m in enumerate(mms) if m != mms[0]]
+            if differ:
+                warnings.append(
+                    "ステップごとにモデルパラメータ（mm）が違っていたため、1番目のステップの値を採用しました"
+                    f"（違っていたステップ：{', '.join(f'{n:02d}' for n in differ)}）")
+        return panel, warnings
 
     def save(self, path) -> None:
         _write_json(path, self.to_dict())
@@ -282,6 +411,7 @@ class Sequence:
     def load(cls, path) -> "Sequence":
         seq = cls.from_dict(_read_json(path))
         seq.resolve_relative_folders(APP_DIR)
+        seq.load_warnings.extend(seq.use_standard_panel_folders_if_missing())
         return seq
 
     def resolve_relative_folders(self, base) -> None:

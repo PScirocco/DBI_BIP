@@ -103,7 +103,7 @@ class SimWorker(QThread):
         outputs = engine.write_recipe_outputs(
             result=res, folders=self.sequence.folders,
             sequence_name=self.sequence.sequence_name, model=self.model,
-            model_param=self.sequence.recipes[int(res.nn) - 1].model_param,
+            model_param=self.sequence.panel.model_param,
             log=self.logger)
         entry = ResultEntry(nn=int(res.nn), recipe_name=res.recipe_name,
                             is_movie=res.is_movie, outputs=outputs,
@@ -141,6 +141,8 @@ class MainWindow(QMainWindow):
         for k, v in self.app_config.default_folders.items():
             if k in self.sequence.folders and v and Path(v).is_dir():
                 self.sequence.folders[k] = v      # 直近使用フォルダ（存在するものだけ）を初期値に
+        # 直近のフォルダにパネル設定の標準ファイルが無ければ（古い bisim_app.json など）標準のフォルダへ
+        panel_msgs = self.sequence.use_standard_panel_folders_if_missing()
         self._seq_path: Path | None = None
         self.results: dict[int, ResultEntry] = {}
         self.current_row: int | None = None
@@ -185,6 +187,8 @@ class MainWindow(QMainWindow):
         self.steps_changed()
         self.statusBar().showMessage(t("status.ready"))
         self.logger.action(f"BI-sim {__version__} 起動")
+        for msg in panel_msgs:
+            self.logger.action(f"パネル設定: {msg}")
 
     def _apply_default_geometry(self):
         """既定ウィンドウサイズ。縦は利用可能画面の約 80%（フルスクリーンにしない）。
@@ -275,6 +279,8 @@ class MainWindow(QMainWindow):
         for name in engine.cleanup_empty_stop_dirs(seq.folders):
             self.logger.action(f"空の停止フォルダを削除: {name}")
         self.current_row = 0 if seq.recipes else None
+        for msg in seq.load_warnings:
+            self.logger.error(f"シーケンス読込の注意: {msg}")
         self.folders_changed()
         self.steps_changed()
         if self._stopped_states:
@@ -407,15 +413,32 @@ class MainWindow(QMainWindow):
         self.logger.action(f"レシピ '{recipe.recipe_name}' の設定を適用")
 
     # ---- run ----
-    def _ensure_model(self) -> bool:
-        if self.model is not None:
-            return True
-        try:
-            self.model = engine.CoreModel(log=self.logger)
-        except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, t("dlg.err.title"),
-                                 f"{type(e).__name__}: {e}")
-            return False
+    def _ensure_model(self, indices=None) -> bool:
+        """シーケンスのパネル設定でモデルを用意する（パネル設定が変わっていたら作り直す）。
+
+        ``indices`` のステップにサブモデルの差し替えがあれば、そのファイルも実行前に検査する。
+        """
+        seq = self.sequence
+        bc_path, sm_path = seq.bcset_path(), seq.sm_path()
+        key = engine.panel_key(bc_path, sm_path)       # 別のファイル・保存し直したファイルなら作り直す
+        if self.model is None or getattr(self.model, "panel_key", None) != key:
+            try:
+                self.model = engine.CoreModel(bcset_path=bc_path, sm_path=sm_path, log=self.logger)
+            except Exception as e:  # noqa: BLE001
+                self.model = None
+                self.logger.error(f"パネル設定を使えません: {e}")
+                QMessageBox.critical(self, t("dlg.err.title"), t("panel.err.run", msg=str(e)))
+                return False
+            self.logger.action(f"パネル設定を読込: BC設定 {bc_path.name} / サブモデル {sm_path.name}")
+        for i in indices or []:
+            if seq.recipes[i].sm_override:
+                chk = engine.check_sm(seq.sm_path(i), self.model.bc_dict["BC_BAND_NUM"])
+                if not chk.ok:
+                    msg = t("panel.err.step_sm", n=i + 1, name=seq.recipes[i].sm_override,
+                            problems="\n".join(chk.problems))
+                    self.logger.error(msg)
+                    QMessageBox.critical(self, t("dlg.err.title"), msg)
+                    return False
         return True
 
     def _calc_elapsed(self) -> float:
@@ -501,7 +524,7 @@ class MainWindow(QMainWindow):
             if not rs[i].input_image or (needs_heatmap and not rs[i].heatmap):
                 QMessageBox.warning(self, t("run.msg.title"), t("run.msg.unset", n=i + 1))
                 return
-        if not self._ensure_model():
+        if not self._ensure_model(check):
             return
 
         for i in check:
@@ -654,7 +677,7 @@ class MainWindow(QMainWindow):
         st, outputs = engine.write_stop_checkpoint(
             result=res, folders=self.sequence.folders,
             sequence_name=self.sequence.sequence_name, model=self.model,
-            model_param=recipe.model_param if recipe else {},
+            model_param=self.sequence.panel.model_param,
             timestamp=ts, log=self.logger)
         self._set_stop(nn, st)
         self._autosave_sequence()

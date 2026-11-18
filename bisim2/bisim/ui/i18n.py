@@ -107,6 +107,45 @@ STR: dict[str, dict[str, str]] = {
     "folder.simconf": {"ja": "Sim条件フォルダ", "en": "Sim condition folder"},
     "folder.output": {"ja": "出力フォルダ", "en": "Output folder"},
 
+    # ---- panel settings（①。フェーズF）----
+    "panel.grp": {"ja": "パネル設定（シーケンスに1組）", "en": "Panel settings (one set per sequence)"},
+    "panel.desc": {
+        "ja": "劣化コアが使うパネルの情報です。機種ごとの値（劣化モデル）と、パネル1枚ごとの値（BC設定）に分けています。"
+              "ファイルは上の「モデルパラメータフォルダ」「BC設定フォルダ」の中から選びます。"
+              "CSV を直すときは「複製して Excel で開く…」で複製を作ってから直してください（標準ファイルを書き換えないため）。"
+              "Excel で保存したら「再検査」を押してください。",
+        "en": "Panel information used by the degradation core, split into per-panel-type values (degradation model) "
+              "and per-panel values (BC settings). Files are picked from the model parameter / BC settings folders above. "
+              "To edit a CSV, use \"Duplicate & open in Excel…\" and edit the copy (the standard files stay untouched). "
+              "Press \"Re-check\" after saving in Excel."},
+    "panel.grp.type": {"ja": "機種（劣化モデル：同じ機種で共通）",
+                       "en": "Panel type (degradation model; common to a panel type)"},
+    "panel.grp.unit": {"ja": "個体（BC設定：パネル1枚ごと）",
+                       "en": "Individual panel (BC settings; per panel)"},
+    "panel.sm": {"ja": "サブモデル（degparam_sm）", "en": "Sub model (degparam_sm)"},
+    "panel.mm": {"ja": "マスターモデル（degparam_mm）", "en": "Master model (degparam_mm)"},
+    "panel.bcset": {"ja": "BC設定（bcsetting）", "en": "BC settings (bcsetting)"},
+    "panel.btn.dup_excel": {"ja": "複製して Excel で開く…", "en": "Duplicate && open in Excel…"},
+    "panel.btn.recheck": {"ja": "再検査", "en": "Re-check"},
+    "panel.ok": {"ja": "✓ 使えます（{n} Band）", "en": "✓ OK ({n} bands)"},
+    "panel.ng": {"ja": "✗ 使えません：\n{problems}", "en": "✗ Not usable:\n{problems}"},
+    "panel.check.title": {"ja": "パネル設定ファイルの検査", "en": "Panel settings file check"},
+    "panel.check.msg": {
+        "ja": "{name} に問題があります：\n{problems}\n\n選択はそのままにします。直してから「再検査」を押してください。",
+        "en": "{name} has problems:\n{problems}\n\nThe selection is kept. Fix the file and press \"Re-check\"."},
+    "panel.dup.title": {"ja": "複製して Excel で開く", "en": "Duplicate & open in Excel"},
+    "panel.dup.missing": {"ja": "元のファイルがありません: {path}", "en": "Source file not found: {path}"},
+    "panel.dup.same": {"ja": "元のファイルと同じ名前には複製できません。別の名前を指定してください。",
+                       "en": "Cannot duplicate onto the source file. Choose another name."},
+    "panel.dup.done": {"ja": "複製して開きました: {path}（Excel で保存したら「再検査」を押してください）",
+                       "en": "Duplicated and opened: {path} (press \"Re-check\" after saving in Excel)"},
+    "panel.dup.open_fail": {"ja": "複製しましたが、開けませんでした: {path}",
+                            "en": "Duplicated, but could not open: {path}"},
+    "panel.err.run": {"ja": "パネル設定（①）を使えません。\n\n{msg}",
+                      "en": "The panel settings (tab 1) cannot be used.\n\n{msg}"},
+    "panel.err.step_sm": {"ja": "ステップ #{n} のサブモデルの差し替え {name} を使えません:\n{problems}",
+                          "en": "The sub-model override {name} of step #{n} cannot be used:\n{problems}"},
+
     # ---- steps tab ----
     "steps.seq_name": {"ja": "シーケンス名", "en": "Sequence name"},
     "steps.name_hint": {
@@ -189,7 +228,6 @@ STR: dict[str, dict[str, str]] = {
     "cfg.pv.heatmap_eval": {"ja": "PQ評価ステップ：温度設定なし",
                             "en": "PQ eval step: no temperature setting"},
     "cfg.grp.init": {"ja": "初期ストレス（Aging 再開）", "en": "Initial stress (resume aging)"},
-    "cfg.grp.model": {"ja": "モデルパラメータ（Master Model）", "en": "Model parameters (Master Model)"},
     "cfg.model_csv": {"ja": "参照CSV: {name}", "en": "CSV: {name}"},
     "cfg.model_csv_none": {"ja": "参照CSV: （なし・インライン値）", "en": "CSV: (none, inline values)"},
     "cfg.btn.load_csv": {"ja": "CSVから読込", "en": "Load from CSV"},
@@ -205,10 +243,8 @@ STR: dict[str, dict[str, str]] = {
     "cfg.init.file_r": {"ja": "初期 stat_r CSV", "en": "Initial stat_r CSV"},
     "cfg.init.file_g": {"ja": "初期 stat_g CSV", "en": "Initial stat_g CSV"},
     "cfg.init.file_b": {"ja": "初期 stat_b CSV", "en": "Initial stat_b CSV"},
-    "cfg.grp.future": {"ja": "BC設定 / 処理パイプライン（将来拡張・現在は無効）",
-                       "en": "BC settings / processing pipeline (future, disabled)"},
-    "cfg.bc_note": {"ja": "BC設定（DBV_NIT, Duty）: 現行モデルは未使用",
-                    "en": "BC settings (DBV_NIT, Duty): unused by current model"},
+    "cfg.grp.future": {"ja": "処理パイプライン（将来拡張・現在は無効）",
+                       "en": "Processing pipeline (future, disabled)"},
     "cfg.pipe.bip": {"ja": "BIP 前処理", "en": "BIP pre-process"},
     "cfg.pipe.dbi": {"ja": "DBI 補正", "en": "DBI compensation"},
     "cfg.pipe.peak": {"ja": "ピーク輝度制御", "en": "Peak luminance control"},

@@ -54,6 +54,13 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 
 ## 現在の状況（2026-11-18）
 
+- **2026-11-18 フェーズF 手順5 区切り1（5-1 データ＋5-2 ①タブ）済**：パネル設定はシーケンスに1組（`Sequence.panel`＝`model.PanelConfig`：
+  bcsetting・sm はファイル名＋①のフォルダ、mm は数値。**mm・sm＝機種ごと、bcsetting＝個体ごと**（松井さん 11/17 回答））。
+  `Recipe.model_param` は廃止（旧 JSON は標準ファイル＋1番目のステップの mm に移行し警告）、`Recipe.sm_override`（ステップごとの sm 差し替え）。
+  Sim 条件に `DBV_NIT`・`DPK_ON`・`GADJ`。①に「パネル設定」欄（検査結果・複製して Excel で開く・再検査・mm の表）。
+  `engine.check_bcset`・`check_sm`、`CoreModel.use_sm`、`engine.panel_key`（ファイルの更新時刻込み。変わればモデルを作り直す）。
+  標準の simconf.csv は `DPK_ON=0`・`GADJ=1,1,1` に。selftest **115/115**、松井さんの 11 ケースは差 0 のまま。**次は区切り2（5-3 ③タブ）**。詳細は `doc/progress/261117_フェーズF_進め方と決定事項.md` の「手順5 の結果」
+
 - **2026-11-18 フェーズF 手順4 済：bisim は新コアで動く**（`bisim2/source/main.py`＝新コア、旧コアは `bisim2/source/old_core_261117/`）。
   `engine.CoreModel`（`MasterModel` は削除）、deg2 を `RunResult.deg2` → `…_deg2_{c}.csv`／停止チェックポイントに出力。
   パネル設定（bcsetting・sm）は今は標準ファイル `bisim2/source/dbi_conf/` 固定、Sim 条件の新3項目は `engine.CORE_SIM_DEFAULTS`（暫定）。
@@ -184,13 +191,13 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | モジュール | 役割 | フェーズ |
 |---|---|---|
 | `paths.py` | SOURCE_DIR / APP_DIR / LOG_DIR / 既定フォルダ6種（フェーズF：bcset・model＝`source/dbi_conf`、simconf＝`source/dbi_input`）/ パネル設定の標準ファイル `STD_BCSET`・`STD_DEGPARAM_MM`・`STD_DEGPARAM_SM` | A/F |
-| `model.py` | `Recipe`（`step_type`＝`aging`/`eval` を手動選択・未指定/旧JSONは拡張子から。`heatmap_mode`/`fixed_temp_c` でヒートマップなし＝固定温度に対応） / `Sequence`（`stops` に停止状態を内包） / `StopState` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） | A/D |
+| `model.py` | `Recipe`（`step_type`＝`aging`/`eval` を手動選択・未指定/旧JSONは拡張子から。`heatmap_mode`/`fixed_temp_c` でヒートマップなし＝固定温度に対応。`sm_override`。mm は持たない） / `Sequence`（`stops` に停止状態を内包、`panel`＝`PanelConfig`、`bcset_path()`・`sm_path(i)`、旧 JSON の移行と `load_warnings`） / `StopState` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） / `SIM_KEYS`（新3項目）・`parse_sim_value` | A/D/F |
 | `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name`（`_`→`-`）、`stop_dir`（`_stops/` チェックポイントのフォルダ名） | A/D |
 | `paramio.py` | model/sim パラメータ CSV I/O（CLI版 `degparam_mm.csv` / `simconf.csv` と互換） | B |
 | `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） | B |
-| `engine.py` | `run_recipe` は種別で分岐（Aging×動画／Aging×静止画＝`STILL_AGING_FPS`=1／PQ評価＝`dt=0`・`EVAL_TEMP_C`=25℃固定）/ `media_size`・`sequence_reference_size`（③の画像サイズ検査）/ `DegradationModel`（差し替え点。`update(..., deg2=None)`）/ `CoreModel`（新コア `burn_in_core` のラップ。bcsetting・sm を読み、Band 選択を `DBV_NIT`・`DPK_ON` ごとにキャッシュ。フェーズF）/ `core_sim_dict`・`CORE_SIM_DEFAULTS` / `RGBMaps`（deg2 など）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に。`AGING_TIME`>0 で目標時間駆動＝超過打切り／不足なら動画を周回連結、`resume_from` が周回をまたぐ場合は `% frames_total` でシーク、見積りは `aging_time_add_frames()` に共通化）/ `run_sequence` / 出力の確定・破棄 / `format_aging`（時:分:秒表示）/ `movie_meta`（fps・総フレーム数） | B/D |
+| `engine.py` | `run_recipe` は種別で分岐（Aging×動画／Aging×静止画＝`STILL_AGING_FPS`=1／PQ評価＝`dt=0`・`EVAL_TEMP_C`=25℃固定）/ `media_size`・`sequence_reference_size`（③の画像サイズ検査）/ `DegradationModel`（差し替え点。`update(..., deg2=None)`）/ `CoreModel`（新コア `burn_in_core` のラップ。bcsetting・sm を読み、`use_sm` でステップごとに sm を差し替え、Band 選択を sm・`DBV_NIT`・`DPK_ON` ごとにキャッシュ。`panel_key`。フェーズF）/ `check_bcset`・`check_sm`（パネル設定ファイルの検査）/ `panel_key`・`file_key` / `core_sim_dict`・`CORE_SIM_DEFAULTS` / `RGBMaps`（deg2 など）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に。`AGING_TIME`>0 で目標時間駆動＝超過打切り／不足なら動画を周回連結、`resume_from` が周回をまたぐ場合は `% frames_total` でシーク、見積りは `aging_time_add_frames()` に共通化）/ `run_sequence` / 出力の確定・破棄 / `format_aging`（時:分:秒表示）/ `movie_meta`（fps・総フレーム数） | B/D |
 | `logio.py` | `Logger`（`_log_BISim/` セッションローテーション＝起動ごとに新ファイル。容量超過時は同一セッション内でも新パートへ、総容量上限、画面表示 listener） | B |
-| `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ。`step_config.py`③にステップ種別の選択＋PQ評価時はヒートマップ・Sim条件欄を隠す＋ファイル選択時の画像サイズ検査、`run.py`④に選択ステップの動画情報＋AGING_TIME判定ラベル、`results.py`⑤の累積時間マップはR/G/B各色独自の最大値で正規化） | C/D |
+| `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ。`folders.py`①にパネル設定欄（フェーズF）、`step_config.py`③にステップ種別の選択＋PQ評価時はヒートマップ・Sim条件欄を隠す＋ファイル選択時の画像サイズ検査、`run.py`④に選択ステップの動画情報＋AGING_TIME判定ラベル、`results.py`⑤の累積時間マップはR/G/B各色独自の最大値で正規化） | C/D |
 | `installer/` | `bisim.spec`（PyInstaller 6.x・onedir）/ `bisim_launcher.py` / `build_exe.ps1` / `README.md`。手順は `doc/EXEビルド手順書.md` | E |
 
 - 実行（`bisim2\` で `.venv\Scripts\python …`）：`python -m bisim`（GUI 起動）／ `python -m bisim --info`（データ層＋エンジン確認）／ **テスト：`python -m bisim.selftest`（pytest 不要、テストモジュールごとに別プロセス。`test_ui` は `QT_QPA_PLATFORM=offscreen` 推奨。個別は `python -m bisim.selftest test_engine`）**

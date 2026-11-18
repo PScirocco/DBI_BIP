@@ -7,11 +7,14 @@ from bisim import engine
 from bisim.model import Sequence
 seq = Sequence.load(sys.argv[2])
 seq.folders["output"] = str(Path(sys.argv[3]).resolve())
-model = engine.CoreModel()
+# パネル設定はシーケンスのもの（手順5-1。旧シーケンスは標準ファイル）
+for w in seq.load_warnings:
+    print("注意:", w)
+model = engine.CoreModel(bcset_path=seq.bcset_path(), sm_path=seq.sm_path())
 t0 = time.time()
 def done(res):
     engine.write_recipe_outputs(result=res, folders=seq.folders, sequence_name=seq.sequence_name,
-                                model=model, model_param=seq.recipes[int(res.nn) - 1].model_param)
+                                model=model, model_param=seq.panel.model_param)
     print(f"  {res.nn}_{res.recipe_name}: frames={res.frames_done if hasattr(res,'frames_done') else '-'} "
           f"aging={engine.format_aging(res.aging_seconds)} 累積={engine.format_aging(res.cumulative_aging_seconds)} "
           f"({time.time()-t0:.0f}s)", flush=True)

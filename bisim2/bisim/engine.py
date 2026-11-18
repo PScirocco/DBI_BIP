@@ -2,6 +2,7 @@
 
 - ``DegradationModel``  : 差し替え点（Protocol）。1フレーム更新 ＋ 劣化率マップ算出
 - ``CoreModel``         : ``source/main.py``（新コア ``burn_in_core``。フェーズF）をラップしたモデル
+- ``check_bcset`` / ``check_sm`` : パネル設定ファイル（bcsetting・サブモデル）の検査
 - ``RGBMaps``           : 画素ごと・RGB 別のマップ（deg2 の受け取りなど）
 - ``StressState``       : 累積ストレス(stat_r/g/b) の保持・CSV load/save・shape検証
 - ``RunControl``        : UIスレッドからの 中断・再開・停止
@@ -9,7 +10,7 @@
 - ``run_sequence``      : シーケンス全体（初期ストレスの解決・連鎖・Aging時間累積）
 - ``write_recipe_outputs`` / ``discard_recipe_outputs`` : 出力の確定 / 破棄
 
-``source/`` は無改変。Unicode パス対策は静止画=``imio``、動画=``cv2`` 直（VideoWriter は
+``source/`` は bisim 側で追加した箇所（「追加(bisim側)」のコメント）以外は無改変。Unicode パス対策は静止画=``imio``、動画=``cv2`` 直（VideoWriter は
 ASCII一時ファイル→``shutil.move``）。
 """
 from __future__ import annotations
@@ -28,7 +29,9 @@ import cv2
 import numpy as np
 
 from bisim import imio, naming, paramio
-from bisim.model import CHECKPOINT_ROOT, Recipe, Sequence, StopState
+from bisim.model import (
+    CHECKPOINT_ROOT, DEFAULT_MODEL, DEFAULT_SIM, Recipe, Sequence, StopState,
+)
 from bisim.paths import SOURCE_DIR, STD_BCSET, STD_DEGPARAM_SM
 
 # 停止チェックポイント内の素のファイル名（フォルダ名が識別子。日時なし・常に最新1件）
@@ -168,10 +171,9 @@ def _load_core():
     return mod
 
 
-# 新コアの Sim 条件のうち、レシピに無いときに使う既定値（2026-11-17 決定）。
-# 手順5-1 でレシピ（model.Recipe.sim_param）に持たせるまでの暫定。
-CORE_SIM_DEFAULTS = {"DBV_NIT": 2000.0, "DPK_ON": 0,
-                     "GADJ_R": 1.0, "GADJ_G": 1.0, "GADJ_B": 1.0}
+# 新コアの Sim 条件の既定値（2026-11-17 決定。``model.DEFAULT_SIM`` と同じ値を ``simconf_dict`` の形で）
+CORE_SIM_DEFAULTS = {"DBV_NIT": float(DEFAULT_SIM["DBV_NIT"]), "DPK_ON": int(DEFAULT_SIM["DPK_ON"]),
+                     **{f"GADJ_{c}": float(v) for c, v in zip("RGB", DEFAULT_SIM["GADJ"])}}
 
 
 def core_sim_dict(sim_param: dict) -> dict:
@@ -190,13 +192,142 @@ def core_sim_dict(sim_param: dict) -> dict:
     return d
 
 
+# --------------------------------------------------------------------------- #
+#  パネル設定ファイルの検査（ファイルを選んだとき・実行前。手順5）
+# --------------------------------------------------------------------------- #
+_BC_KEYS = ("BC_BAND_NUM", "APL_DPK", "DBV_NIT_DPK", "DBV_NIT_BC", "DUTY_BC",
+            "CURR_BC_R", "CURR_BC_G", "CURR_BC_B", "CURR_RATIO", "GI_LUT_WRD_GRY", "GI_LUT_GRY")
+_SM_KEYS = ("DEG_2D_WRD_DEG", "DEG_2D_DEG_R", "DEG_2D_DEG_G", "DEG_2D_DEG_B",
+            "DEG_2D_WRD_I", "DEG_2D_I_R", "DEG_2D_I_G", "DEG_2D_I_B")
+
+
+def _csv_keys(path: Path) -> set:
+    """CSV の各行の先頭の欄（キー名）の集合。"""
+    keys = set()
+    with open(path, encoding="utf-8-sig") as f:
+        for line in f:
+            k = line.split(",", 1)[0].strip()
+            if k:
+                keys.add(k)
+    return keys
+
+
+def _strictly(arr, order: str) -> bool:
+    d = np.diff(np.asarray(arr, dtype=float))
+    return bool(np.all(d > 0)) if order == "asc" else bool(np.all(d < 0))
+
+
+@dataclass(eq=False)
+class PanelCheck:
+    """パネル設定ファイルの検査結果。``problems`` が空なら使える。"""
+
+    problems: list = field(default_factory=list)
+    band_num: Optional[int] = None        # 読めたときの Band 数
+    data: Optional[dict] = None           # 読み込んだ辞書（load_com_info の戻り値）
+
+    @property
+    def ok(self) -> bool:
+        return not self.problems
+
+
+def check_bcset(path) -> PanelCheck:
+    """``bcsetting.csv`` の検査：ファイルの有無・キー行の欠落・読み込み・各 Band の列数・並び順。"""
+    p = Path(path)
+    chk = PanelCheck()
+    if not p.is_file():
+        chk.problems.append(f"ファイルがありません: {p}")
+        return chk
+    try:
+        missing = [k for k in _BC_KEYS if k not in _csv_keys(p)]
+    except (OSError, UnicodeDecodeError) as e:
+        chk.problems.append(f"読めません: {type(e).__name__}: {e}")
+        return chk
+    if missing:
+        chk.problems.append("キーの行がありません: " + ", ".join(missing))
+        return chk
+    rc, bc = _load_core().com_info.load_bcset(str(p))
+    if rc != 0:
+        chk.problems.append("読み込みに失敗しました（GI_LUT の行数・列数が GI_LUT_WRD_GRY・BC_BAND_NUM と"
+                            "合わない、数値でない値がある、など）")
+        return chk
+    n = int(bc["BC_BAND_NUM"])
+    for k in ("DBV_NIT_BC", "DUTY_BC", "CURR_BC_R", "CURR_BC_G", "CURR_BC_B"):
+        if len(bc[k]) != n:
+            chk.problems.append(f"{k} の値の数 {len(bc[k])} が BC_BAND_NUM={n} と違います")
+    if len(bc["DBV_NIT_BC"]) == n and not _strictly(bc["DBV_NIT_BC"], "desc"):
+        chk.problems.append("DBV_NIT_BC は大きい順（降順）に並べてください")
+    if not len(bc["DBV_NIT_DPK"]) < n:     # 通常の最大 Band（HBM）＝DBV_NIT_BC[len(DBV_NIT_DPK)]
+        chk.problems.append(f"DBV_NIT_DPK の値の数 {len(bc['DBV_NIT_DPK'])} は BC_BAND_NUM={n} より少なくしてください")
+    if not _strictly(bc["GI_LUT_GRY"], "asc"):
+        chk.problems.append("GI_LUT_GRY は小さい順（昇順）に並べてください")
+    chk.band_num, chk.data = n, bc
+    return chk
+
+
+def check_sm(path, band_num: Optional[int] = None) -> PanelCheck:
+    """``degparam_sm.csv`` の検査：ファイルの有無・キー行の欠落・読み込み・軸の並び順・Band 数。
+
+    軸の決まり（``source/main.py`` の説明）：劣化軸 ``DEG_2D_DEG_*`` は 1.0 から始まる降順、
+    電流軸 ``DEG_2D_I_*`` は昇順で最後が 1.0。``band_num`` を渡すと bcsetting の Band 数と比べる。
+    """
+    p = Path(path)
+    chk = PanelCheck()
+    if not p.is_file():
+        chk.problems.append(f"ファイルがありません: {p}")
+        return chk
+    try:
+        missing = [k for k in _SM_KEYS if k not in _csv_keys(p)]
+    except (OSError, UnicodeDecodeError) as e:
+        chk.problems.append(f"読めません: {type(e).__name__}: {e}")
+        return chk
+    if missing:
+        chk.problems.append("キーの行がありません: " + ", ".join(missing))
+        return chk
+    rc, sm = _load_core().com_info.load_degparam_sm(str(p))
+    if rc != 0:
+        chk.problems.append("読み込みに失敗しました（軸の値の数が DEG_2D_WRD_DEG・DEG_2D_WRD_I と合わない、"
+                            "表の行数・列数が合わない、数値でない値がある、など）")
+        return chk
+    for c in "RGB":
+        deg_ax, i_ax = sm[f"DEG_2D_DEG_{c}"], sm[f"DEG_2D_I_{c}"]
+        if len(deg_ax) and float(deg_ax[0]) != 1.0:
+            chk.problems.append(f"DEG_2D_DEG_{c} の最初の値は 1 にしてください（今は {float(deg_ax[0]):g}）")
+        if not _strictly(deg_ax, "desc"):
+            chk.problems.append(f"DEG_2D_DEG_{c} は大きい順（降順）に並べてください")
+        if len(i_ax) and float(i_ax[-1]) != 1.0:
+            chk.problems.append(f"DEG_2D_I_{c} の最後の値は 1 にしてください（今は {float(i_ax[-1]):g}）")
+        if not _strictly(i_ax, "asc"):
+            chk.problems.append(f"DEG_2D_I_{c} は小さい順（昇順）に並べてください")
+    n = int(sm["DEG_2D_BC_IxDEG_R"].shape[0])
+    if band_num is not None and n != band_num:
+        chk.problems.append(f"Band 数 {n} が bcsetting の BC_BAND_NUM={band_num} と違います")
+    chk.band_num, chk.data = n, sm
+    return chk
+
+
+def file_key(path) -> tuple:
+    """ファイルの同一性の目印（絶対パス・更新時刻・大きさ）。無ければ時刻・大きさは ``None``。"""
+    p = Path(path)
+    try:
+        st = p.stat()
+        return (str(p.resolve()), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return (str(p.resolve()), None, None)
+
+
+def panel_key(bcset_path, sm_path) -> tuple:
+    """パネル設定（bcsetting・sm）の目印。:attr:`CoreModel.panel_key` と比べる。"""
+    return (file_key(bcset_path), file_key(sm_path))
+
+
 class CoreModel:
     """新コア（``source/main.py`` の ``burn_in_core``）をラップしたモデル（フェーズF）。
 
-    - パネル設定（bcsetting・サブモデル degparam_sm）は作成時に読み込む
-      （手順5 でシーケンスに持たせるまでは標準ファイル ``source/dbi_conf/``）。
-      マスターモデルのパラメータ（mm）は今までどおりレシピの ``model_param``。
-    - Band 選択（``burn_in_band_extract``）は画像に依らず ``DBV_NIT``・``DPK_ON`` だけで
+    - パネル設定（bcsetting・サブモデル degparam_sm）は作成時に読み込む（既定は標準ファイル
+      ``source/dbi_conf/``。画面はシーケンスのパネル設定を渡す）。
+      マスターモデルのパラメータ（mm）は ``update``・``deg_maps`` の引数（シーケンスのパネル設定）。
+    - サブモデルはステップごとに差し替えられる（``use_sm``。表示＝deg2 だけに効く）。読んだ sm は覚えておく
+    - Band 選択（``burn_in_band_extract``）は画像に依らず sm・``DBV_NIT``・``DPK_ON`` だけで
       決まるので、その組ごとに1回だけ計算して覚えておく。
     - ``deg_maps``（deg1）は新コアの出力と同じ ``exp(-stat^B0)``（温度は使わない）。
     """
@@ -207,33 +338,61 @@ class CoreModel:
         self._core = _load_core()
         self.log = log
         self.bcset_path = Path(bcset_path or STD_BCSET)
-        self.sm_path = Path(sm_path or STD_DEGPARAM_SM)
-        ci = self._core.com_info
-        rc_bc, self.bc_dict = ci.load_bcset(str(self.bcset_path))
-        rc_sm, self.sm_dict = ci.load_degparam_sm(str(self.sm_path))
-        bad = [str(p) for rc, p in ((rc_bc, self.bcset_path), (rc_sm, self.sm_path)) if rc != 0]
-        if bad:
-            raise EngineError("パネル設定ファイルを読めません: " + " / ".join(bad))
-        sm_band = self.sm_dict["DEG_2D_BC_IxDEG_R"].shape[0]
-        if sm_band != self.bc_dict["BC_BAND_NUM"]:
-            raise EngineError(
-                f"Band 数が一致しません: サブモデル {self.sm_path.name}={sm_band}, "
-                f"bcsetting {self.bcset_path.name}（BC_BAND_NUM）={self.bc_dict['BC_BAND_NUM']}")
+        self.base_sm_path = Path(sm_path or STD_DEGPARAM_SM)
+        self._bc_key = file_key(self.bcset_path)
+        bc = check_bcset(self.bcset_path)
+        if not bc.ok:
+            raise EngineError(f"BC設定 {self.bcset_path} を使えません:\n  " + "\n  ".join(bc.problems))
+        self.bc_dict = bc.data
+        self._sm_cache: dict = {}
         self._band_cache: dict = {}
+        self._base_sm_key = file_key(self.base_sm_path)
+        self.sm_path, self._sm_key = self.base_sm_path, self._base_sm_key
+        self.sm_dict = self._load_sm(self.base_sm_path, self._sm_key)
+
+    @property
+    def panel_key(self) -> tuple:
+        """読み込んだときのパネル設定（bcsetting・シーケンスの sm）の :func:`panel_key`。
+
+        画面はシーケンスのパネル設定の ``panel_key`` と比べ、違えば（別のファイルを選んだ・
+        Excel で直して保存し直した）モデルを作り直す。
+        """
+        return (self._bc_key, self._base_sm_key)
+
+    def _load_sm(self, path: Path, key: tuple) -> dict:
+        sm = self._sm_cache.get(key)
+        if sm is None:
+            chk = check_sm(path, self.bc_dict["BC_BAND_NUM"])
+            if not chk.ok:
+                raise EngineError(f"サブモデル {path} を使えません:\n  " + "\n  ".join(chk.problems))
+            sm = self._sm_cache[key] = chk.data
+        return sm
+
+    def use_sm(self, path=None) -> None:
+        """このステップで使うサブモデルに切り替える（``None``＝シーケンスの sm）。"""
+        path = Path(path) if path is not None else self.base_sm_path
+        key = file_key(path)
+        if key == self._sm_key:
+            return
+        self.sm_dict = self._load_sm(path, key)
+        self.sm_path, self._sm_key = path, key
+        if self.log:
+            self.log.action(f"サブモデル: {path.name}")
 
     def band_data(self, sim: dict) -> dict:
-        """``burn_in_core`` に渡す Band 間補間用データ（``DBV_NIT``・``DPK_ON`` ごとにキャッシュ）。"""
-        key = (float(sim["DBV_NIT"]), int(sim["DPK_ON"]))
+        """``burn_in_core`` に渡す Band 間補間用データ（sm・``DBV_NIT``・``DPK_ON`` ごとにキャッシュ）。"""
+        dbv, dpk = float(sim["DBV_NIT"]), int(sim["DPK_ON"])
+        key = (self._sm_key, dbv, dpk)
         band = self._band_cache.get(key)
         if band is None:
             rc, band, blog = self._core.burn_in_band_extract(self.bc_dict, self.sm_dict, sim)
             if rc != 0:
                 raise EngineError(
-                    f"Band 選択（burn_in_band_extract）に失敗: DBV_NIT={key[0]:g}, DPK_ON={key[1]}"
+                    f"Band 選択（burn_in_band_extract）に失敗: DBV_NIT={dbv:g}, DPK_ON={dpk}"
                     + (f"\n{blog.rstrip()}" if blog else ""))
             self._band_cache[key] = band
             if self.log:
-                self.log.action(f"Band 選択 DBV_NIT={key[0]:g} DPK_ON={key[1]}\n{blog.rstrip()}")
+                self.log.action(f"Band 選択 DBV_NIT={dbv:g} DPK_ON={dpk}\n{blog.rstrip()}")
         return band
 
     def update(self, dt, img_bgr, ht_bgr, state, model_param, sim_param, deg2=None) -> None:
@@ -445,6 +604,8 @@ def run_recipe(
     control: Optional[RunControl] = None,
     progress_cb: Optional[Callable] = None,   # (done:int, total:int, preview_bgr|None)
     log=None,
+    model_param: Optional[dict] = None,       # mm（シーケンスのパネル設定）。None＝既定値
+    sm_path=None,                             # このステップのサブモデル（None＝モデルの既定の sm）
 ) -> RunResult:
     """1ステップを実行する。処理はステップ種別（``recipe.step_type``）で決まる:
 
@@ -456,6 +617,10 @@ def run_recipe(
     評価ステップは温度設定なし（``EVAL_TEMP_C`` 固定・ヒートマップ不使用）。
     """
     control = control or RunControl()
+    mm = model_param if model_param is not None else {k: list(v) for k, v in DEFAULT_MODEL.items()}
+    use_sm = getattr(model, "use_sm", None)       # サブモデルを差し替えられるモデル（CoreModel）
+    if use_sm is not None:
+        use_sm(sm_path)
     eval_step = recipe.is_eval
     fixed_temp = eval_step or recipe.heatmap_mode == "fixed"
     temp_c = EVAL_TEMP_C if eval_step else recipe.fixed_temp_c
@@ -613,7 +778,7 @@ def run_recipe(
                 ht = _next_ht(use_target)
                 if ht is None:
                     break
-                model.update(dt, img, ht, state, recipe.model_param, sim, deg2=deg2)
+                model.update(dt, img, ht, state, mm, sim, deg2=deg2)
                 last_temp = _temp(ht)
                 if writer is not None:
                     writer.write(img)
@@ -638,7 +803,7 @@ def run_recipe(
             stopped = True
         else:
             ht0_eff = _next_ht(False)
-            model.update(0.0, img0, ht0_eff, state, recipe.model_param, sim, deg2=deg2)
+            model.update(0.0, img0, ht0_eff, state, mm, sim, deg2=deg2)
             last_temp = _temp(ht0_eff)
             frames_done = 1
             img_last = img0
@@ -935,6 +1100,7 @@ def run_sequence(
             initial_state=init_state, control=control,
             resume_from=rf, resume_video=rv, resume_aging_seconds=ras,
             progress_cb=_pcb, log=log, max_frames=max_frames,
+            model_param=sequence.panel.model_param, sm_path=sequence.sm_path(idx),
         )
         cumulative += res.aging_seconds
         res.cumulative_aging_seconds = cumulative

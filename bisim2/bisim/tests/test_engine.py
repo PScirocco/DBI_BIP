@@ -9,8 +9,8 @@ import cv2
 import numpy as np
 
 from bisim import engine
-from bisim.model import Recipe, Sequence
-from bisim.paths import SOURCE_DIR
+from bisim.model import DEFAULT_MODEL, Recipe, Sequence
+from bisim.paths import SOURCE_DIR, STD_BCSET, STD_DEGPARAM_SM
 
 _COMMON = SOURCE_DIR / "dbi_common"
 _MOVIE = "mov_001_480x270.mp4"
@@ -28,6 +28,11 @@ def _folders(out_dir) -> dict:
 
 
 _MODEL = None
+
+
+def _mm() -> dict:
+    """mm（マスターモデル）の既定値の複製。フェーズF からはシーケンスのパネル設定が持つ。"""
+    return {k: list(v) for k, v in DEFAULT_MODEL.items()}
 
 
 def _model():
@@ -72,12 +77,12 @@ def test_run_recipe_still():
         assert res.size == (480, 270)
         assert res.aging_seconds == 0.0            # 静止画は寄与ゼロ
         assert res.dt_accel == 0.0
-        deg = _model().deg_maps(res.state, res.temp_kelvin, r.model_param)
+        deg = _model().deg_maps(res.state, res.temp_kelvin, _mm())
         assert np.allclose(deg["r"], 1.0)         # 初期ストレス0 → 劣化なし
 
         out = engine.write_recipe_outputs(result=res, folders=_folders(d),
                                           sequence_name="T", model=_model(),
-                                          model_param=r.model_param)
+                                          model_param=_mm())
         assert Path(out["image"]).name == "T_01_pq01_image.png"
         assert Path(out["deg_r"]).name == "T_01_pq01_deg_r.csv"
         assert all(Path(p).exists() for p in out.values())
@@ -111,7 +116,7 @@ def test_still_image_aging_accumulates_at_fps1():
         assert res.aging_seconds == 500.0 and not res.is_movie
         assert float(np.nanmax(res.state.r)) > 0.0   # ストレスが貯まっている
         out = engine.write_recipe_outputs(result=res, folders=_folders(d), sequence_name="T",
-                                          model=_model(), model_param=r.model_param)
+                                          model=_model(), model_param=_mm())
         assert Path(out["image"]).name == "T_01_age01_image.png"   # 出力は最後の劣化画像
 
         # 新コアはストレスを「劣化前の画素電流」で貯めるので、同じ絵を5回処理した stat は
@@ -122,7 +127,7 @@ def test_still_image_aging_accumulates_at_fps1():
         sim = engine.core_sim_dict(dict(r.sim_param, TMP_L=25.0, TMP_H=25.0))
         one = engine.StressState.zeros(*img.shape[:2])
         rc = m._core.burn_in_core(1.0, img.copy(), ht, m.bc_dict,
-                                  {f"{k}_{c}": v[i] for k, v in r.model_param.items()
+                                  {f"{k}_{c}": v[i] for k, v in _mm().items()
                                    for i, c in enumerate("rgb")},
                                   m.sm_dict, sim, stat_r=one.r, stat_g=one.g, stat_b=one.b,
                                   **m.band_data(sim))
@@ -156,7 +161,7 @@ def test_eval_movie_does_not_accumulate():
         assert res.aging_seconds == 0.0 and res.dt_accel == 0.0
         assert np.array_equal(res.state.r, before)     # 累積ストレスは変わらない
         out = engine.write_recipe_outputs(result=res, folders=_folders(d), sequence_name="T",
-                                          model=_model(), model_param=r.model_param)
+                                          model=_model(), model_param=_mm())
         assert _movie_count(out["movie"]) == 4
 
 
@@ -195,7 +200,7 @@ def test_still_image_aging_stop_and_resume_matches_uninterrupted():
                                  model=_model(), control=ctl, progress_cb=cb)
         assert res1.stopped and res1.frames_done == 2
         st, out1 = engine.write_stop_checkpoint(result=res1, folders=f, sequence_name="S",
-                                                model=_model(), model_param=r.model_param,
+                                                model=_model(), model_param=_mm(),
                                                 timestamp="261019-1200")
         assert not st.is_movie and Path(out1["image"]).exists()
         plan, err = engine.build_resume_plan(f, st)
@@ -278,7 +283,7 @@ def test_run_recipe_movie_fixed_temp():
         assert np.allclose(res.temp_kelvin, 50.0 + 273.0)
         out = engine.write_recipe_outputs(result=res, folders=_folders(d),
                                           sequence_name="T", model=_model(),
-                                          model_param=r.model_param)
+                                          model_param=_mm())
         assert Path(out["movie"]).exists()
 
 
@@ -293,7 +298,7 @@ def test_run_recipe_movie_limited():
         assert res.dt_accel > 0 and np.isclose(res.dt_accel * 4, res.aging_seconds)
         out =engine.write_recipe_outputs(result=res, folders=_folders(d),
                                           sequence_name="T", model=_model(),
-                                          model_param=r.model_param)
+                                          model_param=_mm())
         assert Path(out["movie"]).name == "T_01_aging01_movie.mp4"
         assert Path(out["movie"]).exists()
         assert res._tmp_video is not None and not Path(res._tmp_video).exists()  # 移動済み
@@ -314,7 +319,7 @@ def test_run_recipe_stop_midway():
 
         st, out = engine.write_stop_checkpoint(
             result=res, folders=_folders(d), sequence_name="T", model=_model(),
-            model_param=r.model_param, timestamp="260904-1430")
+            model_param=_mm(), timestamp="260904-1430")
         assert st.dir == "_stops/T_01_aging01"
         assert st.frames_done == 2 and st.is_movie
         base = Path(d) / "_stops" / "T_01_aging01"
@@ -387,7 +392,7 @@ def test_stop_then_resume_continuous_video():
 
         st, out1 = engine.write_stop_checkpoint(
             result=res1, folders=f, sequence_name="S", model=_model(),
-            model_param=r.model_param, timestamp="260904-1430")
+            model_param=_mm(), timestamp="260904-1430")
         assert st.frames_done == 3 and st.is_movie and st.frames_total == 405
         assert st.aging_seconds > 0
         assert st.dir == "_stops/S_01_aging01"
@@ -405,7 +410,7 @@ def test_stop_then_resume_continuous_video():
         assert res2.aging_seconds > st.aging_seconds        # 積み増しされている
         out2 = engine.write_recipe_outputs(
             result=res2, folders=f, sequence_name="S", model=_model(),
-            model_param=r.model_param)
+            model_param=_mm())
         assert Path(out2["movie"]).name == "S_01_aging01_movie.mp4"   # 通常完了名
         n2 = _movie_count(out2["movie"])
         assert n2 >= n1 + 2                                  # 先頭連結ぶん + 新規
@@ -519,7 +524,7 @@ def test_run_recipe_aging_time_loops_past_movie_length():
 
         out = engine.write_recipe_outputs(result=res, folders=f,
                                           sequence_name="T", model=_model(),
-                                          model_param=r.model_param)
+                                          model_param=_mm())
         assert _movie_count(out["movie"]) == res.frames_done   # 出力動画も周回ぶん連結済み
 
 
@@ -544,7 +549,7 @@ def test_run_recipe_aging_time_stop_and_resume_across_wrap():
 
         st, out1 = engine.write_stop_checkpoint(
             result=res1, folders=f, sequence_name="S", model=_model(),
-            model_param=r.model_param, timestamp="260910-1200")
+            model_param=_mm(), timestamp="260910-1200")
         assert st.frames_done == stop_at
         n1 = _movie_count(out1["movie"])
         assert n1 == stop_at
@@ -563,7 +568,7 @@ def test_run_recipe_aging_time_stop_and_resume_across_wrap():
 
         out2 = engine.write_recipe_outputs(
             result=res2, folders=f, sequence_name="S", model=_model(),
-            model_param=r.model_param)
+            model_param=_mm())
         n2 = _movie_count(out2["movie"])
         assert n2 == res2.frames_absolute                  # 周回をまたいでも連続動画として出力
 
@@ -597,7 +602,7 @@ def test_run_sequence_resume_plan():
                                control=ctl, max_frames=3)
         st, _ = engine.write_stop_checkpoint(
             result=r1, folders=seq.folders, sequence_name="SEQ", model=_model(),
-            model_param=seq.recipes[0].model_param, timestamp="260904-1430")
+            model_param=seq.panel.model_param, timestamp="260904-1430")
         plan, err = engine.build_resume_plan(seq.folders, st)
         assert err is None
         results = engine.run_sequence(sequence=seq, model=_model(), only_index=0,
@@ -631,9 +636,9 @@ def test_core_matches_matsui_reference_case1_2():
                    ("ACCEL_RATIO", "TMP_L", "TMP_H", "DBV_NIT", "DPK_ON", "GADJ_R", "GADJ_G", "GADJ_B")}
             sim["AGING_TIME"] = 0.0                  # 静止画は1フレーム（1秒×ACCEL_RATIO）
             r = Recipe(recipe_name=f"c{idx}", input_image=f"in{idx}.png", heatmap=f"ht{idx}.png",
-                       model_param=mp, sim_param=sim, step_type="aging")
+                       sim_param=sim, step_type="aging")
             res = engine.run_recipe(recipe=r, folders=f, sequence_name="M", nn=f"{idx:02d}",
-                                    model=_model(), initial_state=state)
+                                    model=_model(), initial_state=state, model_param=mp)
             out = engine.write_recipe_outputs(result=res, folders=f, sequence_name="M",
                                               model=_model(), model_param=mp)
             for c in "rgb":
@@ -649,7 +654,7 @@ def test_deg_maps_is_exp_minus_stat_pow_b0():
     s = engine.StressState.zeros(2, 3)
     s.r[:] = 0.5
     s.g[:] = 2.0
-    mp = Recipe().model_param
+    mp = _mm()
     mp["A"] = [0.01, 0.01, 0.01]                    # A を入れても deg1 には効かない
     deg = _model().deg_maps(s, np.full((2, 3), 350.0), mp)
     assert np.allclose(deg["r"], np.exp(-(0.5 ** mp["B0"][0])))
@@ -668,7 +673,7 @@ def test_deg2_written_to_outputs_and_checkpoint():
         # コアが deg2 を書き込んでいる（初期値 1.0 から変わる。サブモデルの表によっては 1 を少し超える）
         assert np.all(res.deg2.r != 1.0)
         out = engine.write_recipe_outputs(result=res, folders=f, sequence_name="T",
-                                          model=_model(), model_param=r.model_param)
+                                          model=_model(), model_param=_mm())
         assert Path(out["deg2_g"]).name == "T_01_age01_deg2_g.csv"
         assert np.array_equal(np.loadtxt(out["deg2_g"], delimiter=","), res.deg2.g)
 
@@ -681,7 +686,7 @@ def test_deg2_written_to_outputs_and_checkpoint():
         res1 = engine.run_recipe(recipe=r, folders=f, sequence_name="S", nn="01",
                                  model=_model(), control=ctl, progress_cb=cb)
         st, out1 = engine.write_stop_checkpoint(result=res1, folders=f, sequence_name="S",
-                                                model=_model(), model_param=r.model_param,
+                                                model=_model(), model_param=_mm(),
                                                 timestamp="261118-1200")
         base = Path(d) / st.dir
         assert out1["deg2_b"] == base / "deg2_b.csv" and out1["deg2_b"].exists()
@@ -731,3 +736,129 @@ def test_core_model_reports_bad_panel_files():
             assert "no_such_sm.csv" in str(e)
         else:
             raise AssertionError("読めないサブモデルで EngineError が出るべき")
+
+
+# --------------------------------------------------------------------------- #
+#  パネル設定（フェーズF 手順5-1）：ファイルの検査・sm の差し替え・シーケンスの mm
+# --------------------------------------------------------------------------- #
+def _edit_csv(src: Path, dst: Path, key: str = None, values=None, drop: str = None, scale_lut=None):
+    """CSV を書き換えた複製を作る。key の行の値を values に／drop の行を削除／キーの無い数値行（表）を scale_lut 倍。"""
+    out = []
+    for line in src.read_text(encoding="utf-8-sig").splitlines():
+        head = line.split(",", 1)[0].strip()
+        if drop and head == drop:
+            continue
+        if key and head == key:
+            line = ",".join([key] + [f"{v:g}" for v in values])
+        elif scale_lut is not None and head and head[0] in "0123456789.-":
+            line = ",".join(f"{float(x) * scale_lut:g}" if x.strip() else x for x in line.split(","))
+        out.append(line)
+    dst.write_text("\n".join(out) + "\n", encoding="utf-8")
+    return dst
+
+
+def test_check_panel_files_standard_ok():
+    bc = engine.check_bcset(STD_BCSET)
+    assert bc.ok and bc.band_num == 15
+    sm = engine.check_sm(STD_DEGPARAM_SM, bc.band_num)
+    assert sm.ok and sm.band_num == 15
+    assert not engine.check_sm(STD_DEGPARAM_SM, 14).ok              # Band 数の不一致
+    assert "BC_BAND_NUM=14" in engine.check_sm(STD_DEGPARAM_SM, 14).problems[0]
+
+
+def test_check_panel_files_reports_problems():
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        assert "ファイルがありません" in engine.check_bcset(d / "none.csv").problems[0]
+        # 取り違え（sm を bcsetting の欄に）→ キーの行が無い
+        assert "キーの行がありません" in engine.check_bcset(STD_DEGPARAM_SM).problems[0]
+        p = _edit_csv(STD_DEGPARAM_SM, d / "a.csv", drop="DEG_2D_I_G")
+        assert "DEG_2D_I_G" in engine.check_sm(p).problems[0]
+        sm = engine.check_sm(STD_DEGPARAM_SM).data
+        deg = list(sm["DEG_2D_DEG_R"])
+        p = _edit_csv(STD_DEGPARAM_SM, d / "b.csv", key="DEG_2D_DEG_R", values=[0.995] + deg[1:])
+        assert any("DEG_2D_DEG_R の最初の値は 1" in x for x in engine.check_sm(p).problems)
+        i_ax = list(sm["DEG_2D_I_B"])
+        i_ax[0], i_ax[1] = i_ax[1], i_ax[0]
+        p = _edit_csv(STD_DEGPARAM_SM, d / "c.csv", key="DEG_2D_I_B", values=i_ax)
+        assert any("DEG_2D_I_B は小さい順" in x for x in engine.check_sm(p).problems)
+        bc = engine.check_bcset(STD_BCSET).data
+        dbv = list(bc["DBV_NIT_BC"])
+        dbv[2], dbv[3] = dbv[3], dbv[2]
+        p = _edit_csv(STD_BCSET, d / "d.csv", key="DBV_NIT_BC", values=dbv)
+        assert any("DBV_NIT_BC は大きい順" in x for x in engine.check_bcset(p).problems)
+        p = _edit_csv(STD_BCSET, d / "e.csv", key="DUTY_BC", values=list(bc["DUTY_BC"])[:-1])
+        assert any("DUTY_BC の値の数 14" in x for x in engine.check_bcset(p).problems)
+        try:
+            engine.CoreModel(bcset_path=p)
+        except engine.EngineError as e:
+            assert "DUTY_BC" in str(e)
+        else:
+            raise AssertionError("使えない bcsetting で EngineError が出るべき")
+
+
+def test_panel_key_changes_when_file_is_saved_again():
+    import os
+    import shutil
+    with tempfile.TemporaryDirectory() as d:
+        bc, sm = Path(d) / "bc.csv", Path(d) / "sm.csv"
+        shutil.copyfile(STD_BCSET, bc)
+        shutil.copyfile(STD_DEGPARAM_SM, sm)
+        m = engine.CoreModel(bcset_path=bc, sm_path=sm)
+        assert m.panel_key == engine.panel_key(bc, sm)
+        st = sm.stat()
+        os.utime(sm, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))   # Excel で保存し直した
+        assert m.panel_key != engine.panel_key(bc, sm)
+
+
+def _small_still(d: Path, name="small.png") -> str:
+    rng = np.random.default_rng(0)
+    cv2.imwrite(str(d / name), rng.integers(0, 256, (18, 32, 3), dtype=np.uint8))
+    return name
+
+
+def test_sm_override_changes_deg2_only():
+    """ステップごとのサブモデルの差し替え：deg2（表示）だけが変わり、stat・deg1 は変わらない。"""
+    with tempfile.TemporaryDirectory() as d:
+        dd = Path(d)
+        f = _folders(d)
+        f["input_image"] = str(dd)
+        img = _small_still(dd)
+        alt = _edit_csv(STD_DEGPARAM_SM, dd / "sm_alt.csv", scale_lut=0.9)
+        assert engine.check_sm(alt, 15).ok
+        m = engine.CoreModel()
+        r = Recipe(recipe_name="a", input_image=img, step_type="aging", heatmap_mode="fixed")
+        r.sim_param.update(ACCEL_RATIO=1000.0, AGING_TIME=2000.0)         # 2フレーム
+        res0 = engine.run_recipe(recipe=r, folders=f, sequence_name="T", nn="01", model=m)
+        res1 = engine.run_recipe(recipe=r, folders=f, sequence_name="T", nn="01", model=m,
+                                 sm_path=alt)
+        assert m.sm_path == alt
+        assert np.array_equal(res0.state.r, res1.state.r)               # stat は同じ
+        assert not np.allclose(res0.deg2.r, res1.deg2.r)                 # deg2 は違う
+        res2 = engine.run_recipe(recipe=r, folders=f, sequence_name="T", nn="01", model=m)
+        assert m.sm_path == m.base_sm_path                               # None＝シーケンスの sm に戻る
+        assert np.array_equal(res0.deg2.r, res2.deg2.r)
+
+
+def test_run_sequence_uses_panel_mm_and_step_sm():
+    with tempfile.TemporaryDirectory() as d:
+        dd = Path(d)
+        img = _small_still(dd)
+        _edit_csv(STD_DEGPARAM_SM, dd / "sm_alt.csv", scale_lut=0.9)
+        import shutil
+        shutil.copyfile(STD_DEGPARAM_SM, dd / STD_DEGPARAM_SM.name)
+        seq = Sequence(sequence_name="P", folders=_folders(d))
+        seq.folders["input_image"] = seq.folders["model"] = str(dd)   # sm（差し替えも）はモデルフォルダ
+        r1 = Recipe(recipe_name="age", input_image=img, step_type="aging", heatmap_mode="fixed")
+        r1.sim_param.update(ACCEL_RATIO=1000.0, AGING_TIME=1000.0)
+        r2 = Recipe(recipe_name="pq", input_image=img, step_type="eval", init_stress="prev")
+        seq.recipes = [r1, r2]
+        res_a = engine.run_sequence(sequence=seq, model=_model())
+        seq.panel.model_param["K0"] = [k * 2 for k in seq.panel.model_param["K0"]]
+        r2.sm_override = "sm_alt.csv"
+        res_b = engine.run_sequence(sequence=seq, model=_model())
+        # mm（K0 を2倍）→ stat は半分
+        assert np.allclose(res_b[0].state.r, res_a[0].state.r / 2)
+        # 2ステップ目（PQ評価）だけ sm を差し替え → deg2 が違う。1ステップ目は同じ sm
+        assert not np.allclose(res_a[1].deg2.g, res_b[1].deg2.g)
+        assert _model().sm_path == seq.sm_path(1)

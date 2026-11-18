@@ -5,21 +5,26 @@ import tempfile
 from pathlib import Path
 
 from bisim.model import (
-    DEFAULT_MODEL, MODEL_KEYS, SIM_KEYS, AppConfig, Recipe, Sequence, StopState,
+    DEFAULT_MODEL, DEFAULT_SIM, SIM_KEYS, AppConfig, PanelConfig, Recipe, Sequence,
+    StopState,
 )
+from bisim.paths import STD_BCSET, STD_DEGPARAM_SM
 
 
 def test_recipe_defaults():
     r = Recipe()
-    assert set(r.model_param) == set(MODEL_KEYS)
-    assert all(len(r.model_param[k]) == 3 for k in MODEL_KEYS)
+    assert not hasattr(r, "model_param")       # mm はシーケンスのパネル設定へ（フェーズF）
     assert set(r.sim_param) == set(SIM_KEYS)
+    assert r.sim_param["DBV_NIT"] == 2000.0 and r.sim_param["DPK_ON"] == 0
+    assert r.sim_param["GADJ"] == [1.0, 1.0, 1.0]
+    assert r.sm_override == ""
     assert r.init_stress == "none"
     assert r.heatmap_mode == "file" and r.fixed_temp_c == 25.0
-    # 既定はインスタンス間で共有されない
+    assert r.validate() == []
+    # 既定はインスタンス間で共有されない（GADJ のリストも）
     r2 = Recipe()
-    r.model_param["N"][0] = 99.0
-    assert r2.model_param["N"][0] == DEFAULT_MODEL["N"][0]
+    r.sim_param["GADJ"][0] = 9.0
+    assert r2.sim_param["GADJ"][0] == 1.0 and DEFAULT_SIM["GADJ"][0] == 1.0
 
 
 def test_recipe_fixed_heatmap_roundtrip():
@@ -95,22 +100,24 @@ def test_recipe_from_old_json_without_step_type():
 
 def test_recipe_roundtrip():
     r = Recipe(recipe_name="日本語01", input_image="x.mp4", heatmap="x_ht.mp4",
-               model_param_csv="x_model-param.csv", init_stress="prev")
-    r.model_param["K0"] = [1.0, 2.0, 3.0]
+               init_stress="prev", sm_override="sm_alt.csv")
+    r.sim_param.update(DBV_NIT=600.0, DPK_ON=1, GADJ=[1.1, 1.0, 0.9])
     r2 = Recipe.from_dict(r.to_dict())
     assert r2.to_dict() == r.to_dict()
-    assert r2.recipe_name == "日本語01"
-    assert r2.model_param["K0"] == [1.0, 2.0, 3.0]
+    assert r2.recipe_name == "日本語01" and r2.sm_override == "sm_alt.csv"
+    assert r2.sim_param["DPK_ON"] == 1 and r2.sim_param["GADJ"] == [1.1, 1.0, 0.9]
 
 
 def test_recipe_from_dict_lenient():
     r = Recipe.from_dict({"recipe_name": "r", "model_param": {"N": [1, 2, 3]},
-                          "init_stress": "bogus", "sim_param": {"TMP_H": 70}})
-    assert r.model_param["N"] == [1.0, 2.0, 3.0]
-    assert r.model_param["K0"] == DEFAULT_MODEL["K0"]      # 欠けは既定で補完
+                          "init_stress": "bogus",
+                          "sim_param": {"TMP_H": 70, "DPK_ON": 5, "GADJ": [1, 2]}})
+    assert "model_param" not in r.to_dict()                 # 旧 JSON の mm はレシピには残らない
     assert r.init_stress == "none"                          # 不正値は none
     assert r.sim_param["TMP_H"] == 70.0
-    assert "AGING_TIME" in r.sim_param
+    assert r.sim_param["DPK_ON"] == 0                       # 不正値（0/1 以外）は既定値
+    assert r.sim_param["GADJ"] == [1.0, 1.0, 1.0]           # 3つでない → 既定値
+    assert "AGING_TIME" in r.sim_param and "DBV_NIT" in r.sim_param   # 旧 JSON（4項目）も補完
 
 
 def test_recipe_validate():
@@ -203,3 +210,67 @@ def test_appconfig_save_load():
         assert AppConfig.load_or_default(p).to_dict() == AppConfig().to_dict()
         AppConfig(log_max_mb=200.0).save(p)
         assert AppConfig.load_or_default(p).log_max_mb == 200.0
+
+
+# --------------------------------------------------------------------------- #
+#  パネル設定（フェーズF 手順5-1）
+# --------------------------------------------------------------------------- #
+def test_panel_defaults_and_roundtrip():
+    seq = Sequence()
+    assert seq.panel.bcsetting == STD_BCSET.name and seq.panel.degparam_sm == STD_DEGPARAM_SM.name
+    assert seq.panel.model_param == DEFAULT_MODEL
+    seq.panel.model_param["K0"] = [1.0, 2.0, 3.0]
+    assert Sequence().panel.model_param["K0"] == DEFAULT_MODEL["K0"]    # 共有されない
+    seq.panel.bcsetting = "bc_unit7.csv"
+    seq.panel.model_param_csv = "mm_typeA.csv"
+    seq.recipes = [Recipe(recipe_name="a", input_image="a.mp4")]
+    d = seq.to_dict()
+    assert d["panel"]["bcsetting"] == "bc_unit7.csv"
+    assert "model_param" not in d["recipes"][0]
+    seq2 = Sequence.from_dict(d)
+    assert seq2.panel == seq.panel and seq2.load_warnings == []
+    assert PanelConfig.from_dict({}) == PanelConfig()
+
+
+def test_sequence_panel_paths_and_sm_override():
+    seq = Sequence(folders={"bcset": "C:/bc", "model": "C:/mdl"})
+    seq.recipes = [Recipe(recipe_name="a"), Recipe(recipe_name="b", sm_override="sm_b.csv")]
+    assert seq.bcset_path() == Path("C:/bc") / STD_BCSET.name
+    assert seq.sm_path() == Path("C:/mdl") / STD_DEGPARAM_SM.name
+    assert seq.sm_path(0) == seq.sm_path()                       # 差し替えなし
+    assert seq.sm_path(1) == Path("C:/mdl") / "sm_b.csv"
+
+
+def test_old_sequence_json_gets_standard_panel():
+    """パネル設定の無い旧 JSON：標準ファイル・標準フォルダ、mm は1番目のステップ（違えば警告）。"""
+    mm1 = {k: list(v) for k, v in DEFAULT_MODEL.items()}
+    mm2 = dict(mm1, K0=[1.0, 2.0, 3.0])
+    old = {"sequence_name": "old",
+           "folders": {"bcset": "C:/old/bc", "model": "C:/old/model", "output": "C:/old/out"},
+           "recipes": [{"recipe_name": "a", "model_param": mm2, "model_param_csv": "x.csv"},
+                       {"recipe_name": "b", "model_param": mm1}]}
+    seq = Sequence.from_dict(old)
+    assert seq.panel.model_param["K0"] == [1.0, 2.0, 3.0]        # 1番目のステップの値
+    assert seq.panel.model_param_csv == "x.csv"
+    assert seq.panel.bcsetting == STD_BCSET.name
+    assert seq.folders["bcset"] == str(STD_BCSET.parent)
+    assert seq.folders["model"] == str(STD_DEGPARAM_SM.parent)
+    assert seq.folders["output"] == "C:/old/out"                  # ほかのフォルダはそのまま
+    assert len(seq.load_warnings) == 2 and "02" in seq.load_warnings[1]
+    # 同じ mm なら警告は1件（標準ファイルを割り当てた旨）だけ
+    old["recipes"][0]["model_param"] = mm1
+    assert len(Sequence.from_dict(old).load_warnings) == 1
+
+
+def test_use_standard_panel_folders_if_missing():
+    with tempfile.TemporaryDirectory() as d:
+        seq = Sequence(folders={"bcset": d, "model": d})
+        msgs = seq.use_standard_panel_folders_if_missing()
+        assert len(msgs) == 2
+        assert seq.folders["bcset"] == str(STD_BCSET.parent)
+        assert seq.folders["model"] == str(STD_DEGPARAM_SM.parent)
+        # 標準と違う名前のファイルは勝手に切り替えない（無いことは①の検査で表示する）
+        seq2 = Sequence(folders={"bcset": d, "model": d})
+        seq2.panel.bcsetting = "bc_unit7.csv"
+        seq2.use_standard_panel_folders_if_missing()
+        assert seq2.folders["bcset"] == d and seq2.folders["model"] == str(STD_DEGPARAM_SM.parent)

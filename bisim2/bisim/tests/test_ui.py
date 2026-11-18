@@ -120,12 +120,11 @@ def test_add_edit_recipe_via_tabs():
     cfg = win.config_tab
     cfg.ed_name.setText("aging_A")
     cfg.sp_accel.setValue(12345.0)
-    cfg.tbl_model.item(0, 0).setText("1.9")
     assert cfg._collect_into_recipe()
     r = win.sequence.recipes[0]
     assert r.recipe_name == "aging_A"
     assert r.sim_param["ACCEL_RATIO"] == 12345.0
-    assert r.model_param["N"][0] == 1.9
+    assert not hasattr(cfg, "tbl_model")            # mm の表は①へ移した（フェーズF）
     _close(win)
 
 
@@ -803,3 +802,160 @@ def test_stop_then_resume_same_session():
             _close(win)
     finally:
         QMessageBox.question = orig_q
+
+
+# --------------------------------------------------------------------------- #
+#  ① パネル設定（フェーズF 手順5-2）
+# --------------------------------------------------------------------------- #
+def _stub_dialogs(open_path=None, save_path=None):
+    """QFileDialog・QMessageBox を差し替える。戻り値 (warned, restore)。"""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    orig = (QFileDialog.getOpenFileName, QFileDialog.getSaveFileName,
+            QMessageBox.warning, QMessageBox.critical)
+    warned = []
+    QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(open_path or ""), ""))
+    QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (str(save_path or ""), ""))
+    QMessageBox.warning = staticmethod(lambda *a, **k: warned.append(a[2] if len(a) > 2 else ""))
+    QMessageBox.critical = staticmethod(lambda *a, **k: warned.append(a[2] if len(a) > 2 else ""))
+
+    def restore():
+        (QFileDialog.getOpenFileName, QFileDialog.getSaveFileName,
+         QMessageBox.warning, QMessageBox.critical) = orig
+    return warned, restore
+
+
+def test_folders_tab_shows_panel_settings():
+    if not _pyside_ok():
+        return
+    from bisim.paths import STD_BCSET, STD_DEGPARAM_SM
+    win = _new_window()
+    ft = win.folders_tab
+    assert ft.file_edits["bcset"].text() == STD_BCSET.name
+    assert ft.file_edits["sm"].text() == STD_DEGPARAM_SM.name
+    assert "OK" in ft.file_status["bcset"].text() and "15" in ft.file_status["sm"].text()
+    # mm の表は入力したらすぐシーケンスへ。数値でなければ警告して元に戻す
+    ft.tbl_mm.item(0, 0).setText("1.9")
+    assert win.sequence.panel.model_param["N"][0] == 1.9
+    warned, restore = _stub_dialogs()
+    try:
+        ft.tbl_mm.item(1, 2).setText("abc")
+    finally:
+        restore()
+    assert warned and ft.tbl_mm.item(1, 2).text() == "100"
+    assert win.sequence.panel.model_param["K0"][2] == 100.0
+    _close(win)
+
+
+def test_pick_panel_file_checks_and_keeps_selection():
+    if not _pyside_ok():
+        return
+    import shutil
+    from bisim.paths import STD_DEGPARAM_SM
+    win = _new_window()
+    ft = win.folders_tab
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        bad = d / "sm_bad.csv"
+        bad.write_text("DEG_2D_WRD_DEG,3\n", encoding="utf-8")
+        warned, restore = _stub_dialogs(open_path=bad)
+        try:
+            ft._pick_panel_file("sm")
+        finally:
+            restore()
+        assert win.sequence.panel.degparam_sm == "sm_bad.csv"            # 選択は残す
+        assert win.sequence.folders["model"] == str(d)
+        assert warned and "sm_bad.csv" in warned[0]
+        assert "✗" in ft.file_status["sm"].text()
+        # 実行前の検査でも止まる
+        warned, restore = _stub_dialogs()
+        try:
+            assert not win._ensure_model([])
+        finally:
+            restore()
+        assert warned and win.model is None
+        # 直したら「再検査」で OK に
+        shutil.copyfile(STD_DEGPARAM_SM, bad)
+        ft.refresh_panel(force=True)
+        assert "✓" in ft.file_status["sm"].text()
+        assert win._ensure_model([])
+    _close(win)
+
+
+def test_duplicate_and_open_panel_file():
+    if not _pyside_ok():
+        return
+    from bisim.paths import STD_BCSET
+    from bisim.ui.tabs import folders as folders_mod
+    win = _new_window()
+    ft = win.folders_tab
+    opened = []
+    orig_open = folders_mod.open_external
+    folders_mod.open_external = lambda p: opened.append(Path(p)) or True
+    with tempfile.TemporaryDirectory() as d:
+        dst = Path(d) / "bc_unit7.csv"
+        warned, restore = _stub_dialogs(save_path=dst)
+        try:
+            ft._dup_and_open("bcset")
+            assert dst.read_bytes() == STD_BCSET.read_bytes()            # 複製（中身はそのまま）
+            assert win.sequence.panel.bcsetting == "bc_unit7.csv"
+            assert win.sequence.folders["bcset"] == str(Path(d))
+            assert opened == [dst] and not warned
+            # 元のファイルと同じ名前には複製しない
+            restore()
+            warned, restore = _stub_dialogs(save_path=dst)
+            ft._dup_and_open("bcset")
+            assert warned and opened == [dst]
+        finally:
+            restore()
+            folders_mod.open_external = orig_open
+    _close(win)
+
+
+def test_model_rebuilt_when_panel_changes():
+    if not _pyside_ok():
+        return
+    import os
+    import shutil
+    from bisim.paths import STD_BCSET
+    win = _new_window()
+    assert win._ensure_model([])
+    m1 = win.model
+    assert win._ensure_model([]) and win.model is m1                 # 変わらなければ使い回す
+    with tempfile.TemporaryDirectory() as d:
+        bc = Path(d) / "bc2.csv"
+        shutil.copyfile(STD_BCSET, bc)
+        win.sequence.folders["bcset"] = d
+        win.sequence.panel.bcsetting = bc.name
+        assert win._ensure_model([]) and win.model is not m1             # 別のファイル → 作り直す
+        m2 = win.model
+        st = bc.stat()
+        os.utime(bc, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))  # 保存し直した
+        assert win._ensure_model([]) and win.model is not m2
+    _close(win)
+
+
+def test_open_old_sequence_logs_panel_migration():
+    if not _pyside_ok():
+        return
+    import json
+    from PySide6.QtWidgets import QFileDialog
+    win = _new_window()
+    logged = []
+    win.logger.add_listener(logged.append)
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "old.seq.json"
+        mm = {"N": [1.5, 1.3, 1.7], "K0": [500, 1000, 100], "Q": [1000, 800, 600],
+              "B0": [0.7, 0.8, 0.4], "A": [0, 0, 0]}
+        p.write_text(json.dumps({"sequence_name": "old", "recipes": [
+            {"recipe_name": "a", "model_param": dict(mm, N=[2, 2, 2])},
+            {"recipe_name": "b", "model_param": mm}]}), encoding="utf-8")
+        orig = QFileDialog.getOpenFileName
+        QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(p), ""))
+        try:
+            win.open_sequence()
+        finally:
+            QFileDialog.getOpenFileName = orig
+    assert win.sequence.panel.model_param["N"] == [2.0, 2.0, 2.0]
+    assert win.folders_tab.tbl_mm.item(0, 0).text() == "2"
+    assert sum("シーケンス読込の注意" in x for x in logged) == 2
+    _close(win)

@@ -1,11 +1,12 @@
 """③ ステップ設定（仕様 5-③）
 
 選択中レシピを編集する。プレビュー3面（入力 / ヒートマップ / 前ステップの画像）、
-モデルパラメータ表＋CSV、Sim条件＋CSV、初期ストレス（なし / 前ステップ継承 / ファイル指定）。
+Sim条件＋CSV、初期ストレス（なし / 前ステップ継承 / ファイル指定）。
+モデルパラメータ（mm）はフェーズF からシーケンスのパネル設定（①）に移した。
 ステップ種別（Aging / PQ評価）は手動で選ぶ。PQ評価ではヒートマップ・Sim条件の欄を隠す
 （ストレスを貯めない・温度設定なし。2026-10-19 決定）。
 入力画像・ヒートマップは選んだ時点でシーケンスの基準サイズと比べ、違えば警告して選ばせない。
-BC設定・処理パイプライン・A/B は将来枠（無効表示）。
+処理パイプライン・A/B は将来枠（無効表示）。
 """
 from __future__ import annotations
 
@@ -13,12 +14,11 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGroupBox,
-    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from bisim import engine, naming, paramio
-from bisim.model import MODEL_KEYS, STEP_TYPES, Recipe, Sequence
+from bisim.model import STEP_TYPES, Recipe, Sequence
 from bisim.ui.i18n import t
 from bisim.ui.tabs._common import with_btn
 from bisim.ui.widgets import ImagePanel, read_first_frame
@@ -113,28 +113,6 @@ class StepConfigTab(QWidget):
         g.addWidget(self.file_host)
         form.addWidget(self.gb_init)
 
-        # ---- モデルパラメータ ----
-        self.gb_model = QGroupBox(t("cfg.grp.model"))
-        g2 = QVBoxLayout(self.gb_model)
-        self.tbl_model = QTableWidget(len(MODEL_KEYS), 3)
-        self.tbl_model.setHorizontalHeaderLabels(["R", "G", "B"])
-        self.tbl_model.setVerticalHeaderLabels(MODEL_KEYS)
-        self.tbl_model.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.tbl_model.setMaximumHeight(190)
-        g2.addWidget(self.tbl_model)
-        self.lbl_model_csv = QLabel(t("cfg.model_csv_none"))
-        g2.addWidget(self.lbl_model_csv)
-        hb = QHBoxLayout()
-        self.b_load = QPushButton(t("cfg.btn.load_csv"))
-        self.b_load.clicked.connect(self._load_model_csv)
-        self.b_save = QPushButton(t("cfg.btn.save_csv"))
-        self.b_save.clicked.connect(self._save_model_csv)
-        hb.addWidget(self.b_load)
-        hb.addWidget(self.b_save)
-        hb.addStretch(1)
-        g2.addLayout(hb)
-        form.addWidget(self.gb_model)
-
         # ---- Sim条件 ----
         self.gb_sim = QGroupBox(t("cfg.grp.sim"))
         f3 = QFormLayout(self.gb_sim)
@@ -166,8 +144,6 @@ class StepConfigTab(QWidget):
         # ---- 将来拡張 ----
         self.gb_future = QGroupBox(t("cfg.grp.future"))
         g4 = QVBoxLayout(self.gb_future)
-        self.lbl_bc = QLabel(t("cfg.bc_note"))
-        g4.addWidget(self.lbl_bc)
         self._future_cbs = {
             "cfg.pipe.bip": QCheckBox(), "cfg.pipe.dbi": QCheckBox(),
             "cfg.pipe.peak": QCheckBox(), "cfg.pipe.ab": QCheckBox(),
@@ -216,10 +192,9 @@ class StepConfigTab(QWidget):
         return self.main.sequence.folders
 
     def set_enabled(self, on: bool):
-        for w in (self.ed_name, self.cmb_kind, self.ed_img, self.cmb_init, self.tbl_model,
+        for w in (self.ed_name, self.cmb_kind, self.ed_img, self.cmb_init,
                   self.sp_accel, self.sp_tl, self.sp_th, self.sp_aging, self.btn_apply,
-                  self.b_img, self.cb_ht_fixed, self.b_load, self.b_save,
-                  self.b_load_sim, self.b_save_sim):
+                  self.b_img, self.cb_ht_fixed, self.b_load_sim, self.b_save_sim):
             w.setEnabled(on)
         self._sync_heatmap_widgets(on)
 
@@ -253,7 +228,6 @@ class StepConfigTab(QWidget):
         self.ed_sr.setText(f.get("r", ""))
         self.ed_sg.setText(f.get("g", ""))
         self.ed_sb.setText(f.get("b", ""))
-        self._fill_model_table(recipe.model_param)
         self._set_csv_labels()
         self.sp_accel.setValue(recipe.sim_param["ACCEL_RATIO"])
         self.sp_tl.setValue(recipe.sim_param["TMP_L"])
@@ -264,17 +238,9 @@ class StepConfigTab(QWidget):
 
     def _set_csv_labels(self):
         r = self.recipe
-        self.lbl_model_csv.setText(
-            t("cfg.model_csv", name=r.model_param_csv) if r.model_param_csv
-            else t("cfg.model_csv_none"))
         self.lbl_sim_csv.setText(
             t("cfg.sim_csv", name=r.sim_param_csv) if r.sim_param_csv
             else t("cfg.sim_csv_none"))
-
-    def _fill_model_table(self, model: dict):
-        for row, key in enumerate(MODEL_KEYS):
-            for c in range(3):
-                self.tbl_model.setItem(row, c, QTableWidgetItem(f"{model[key][c]:g}"))
 
     def _collect_into_recipe(self) -> bool:
         r = self.recipe
@@ -288,13 +254,6 @@ class StepConfigTab(QWidget):
         r.init_stress_files = {
             "r": self.ed_sr.text().strip(), "g": self.ed_sg.text().strip(),
             "b": self.ed_sb.text().strip()}
-        try:
-            for row, key in enumerate(MODEL_KEYS):
-                r.model_param[key] = [float(self.tbl_model.item(row, c).text())
-                                      for c in range(3)]
-        except (ValueError, AttributeError):
-            QMessageBox.warning(self, t("cfg.err.title"), t("cfg.err.model"))
-            return False
         r.sim_param["ACCEL_RATIO"] = self.sp_accel.value()
         r.sim_param["TMP_L"] = self.sp_tl.value()
         r.sim_param["TMP_H"] = self.sp_th.value()
@@ -442,39 +401,7 @@ class StepConfigTab(QWidget):
                 return
         self.pv_prev.set_message(t("cfg.pv.prev_notrun", n=pidx + 1))
 
-    # -- model / sim csv --
-    def _load_model_csv(self):
-        start = self._folders()["model"]
-        path, _ = QFileDialog.getOpenFileName(self, t("cfg.dlg.model_csv"), start, "CSV (*.csv)")
-        if not path:
-            return
-        try:
-            m = paramio.read_model_csv(path)
-        except (OSError, ValueError):
-            QMessageBox.warning(self, t("cfg.load_fail.title"), t("cfg.load_fail.msg"))
-            return
-        self._folders()["model"] = str(Path(path).parent)
-        self.recipe.model_param = m
-        self.recipe.model_param_csv = Path(path).name
-        self._fill_model_table(m)
-        self._set_csv_labels()
-        self.main.folders_changed()
-
-    def _save_model_csv(self):
-        if self.recipe is None or not self._collect_into_recipe():
-            return
-        start = str(Path(self._folders()["model"]) /
-                    naming.input_name(self.recipe.recipe_name, "model-param"))
-        path, _ = QFileDialog.getSaveFileName(self, t("cfg.dlg.model_csv"), start, "CSV (*.csv)")
-        if not path:
-            return
-        paramio.write_model_csv(path, self.recipe.model_param)
-        self.recipe.model_param_csv = Path(path).name
-        self._folders()["model"] = str(Path(path).parent)
-        self._set_csv_labels()
-        self.main.folders_changed()
-        self.main.statusBar().showMessage(t("status.saved", path=path), 3000)
-
+    # -- sim csv --
     def _load_sim_csv(self):
         start = self._folders()["simconf"]
         path, _ = QFileDialog.getOpenFileName(self, t("cfg.dlg.sim_csv"), start, "CSV (*.csv)")
@@ -526,7 +453,6 @@ class StepConfigTab(QWidget):
         self.b_img.setText(t("btn.browse"))
         self.b_ht.setText(t("btn.browse"))
         self.gb_init.setTitle(t("cfg.grp.init"))
-        self.gb_model.setTitle(t("cfg.grp.model"))
         self.gb_sim.setTitle(t("cfg.grp.sim"))
         self.gb_future.setTitle(t("cfg.grp.future"))
         for bb in self._stat_btns:
@@ -539,15 +465,12 @@ class StepConfigTab(QWidget):
         self.cmb_init.addItems([t(f"init.{k}") for k in INIT_KEYS])
         self.cmb_init.setCurrentIndex(max(cur, 0))
         self.cmb_init.blockSignals(False)
-        self.b_load.setText(t("cfg.btn.load_csv"))
-        self.b_save.setText(t("cfg.btn.save_csv"))
         self.b_load_sim.setText(t("cfg.btn.load_csv"))
         self.b_save_sim.setText(t("cfg.btn.save_csv"))
         self.l_accel.setText(t("cfg.accel"))
         self.l_tl.setText(t("cfg.tmp_l"))
         self.l_th.setText(t("cfg.tmp_h"))
         self.l_aging.setText(t("cfg.aging_time"))
-        self.lbl_bc.setText(t("cfg.bc_note"))
         for key, cb in self._future_cbs.items():
             cb.setText(t(key))
         self.btn_apply.setText(t("cfg.btn.apply"))

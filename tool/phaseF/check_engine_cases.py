@@ -28,13 +28,14 @@ for cs in cases:
     _, sim = ci.load_simconf(str(recv/"dbi_input"/cs["sim"]))
     sim["AGING_TIME"] = 0.0
     r = Recipe(recipe_name=f"c{cs['idx']}", input_image=cs["img"], heatmap=cs["ht"],
-               model_param=model_param, sim_param=sim, step_type="aging")
+               sim_param=sim, step_type="aging")
     init = None
     if cs["ini_en"] == "1":
         pre = [out / f"P4_{int(cs['ini'][0].split('_')[0]):02d}_c{cs['ini'][0].split('_')[0]}_stat_{c}.csv" for c in "rgb"]
         init = engine.StressState.load(*pre)
     t = time.time()
-    res = engine.run_recipe(recipe=r, folders=folders, sequence_name="P4", nn=f"{int(cs['idx']):02d}", model=model, initial_state=init)
+    res = engine.run_recipe(recipe=r, folders=folders, sequence_name="P4", nn=f"{int(cs['idx']):02d}", model=model, initial_state=init,
+                           model_param=model_param)   # 手順5-1 から mm は run_recipe に渡す（シーケンスのパネル設定）
     o = engine.write_recipe_outputs(result=res, folders=folders, sequence_name="P4", model=model, model_param=model_param)
     ref = recv/"dbi_output"
     d = {}
