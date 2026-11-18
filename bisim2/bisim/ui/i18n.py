@@ -112,12 +112,16 @@ STR: dict[str, dict[str, str]] = {
     "panel.desc": {
         "ja": "劣化コアが使うパネルの情報です。機種ごとの値（劣化モデル）と、パネル1枚ごとの値（BC設定）に分けています。"
               "ファイルは上の「モデルパラメータフォルダ」「BC設定フォルダ」の中から選びます。"
-              "CSV を直すときは「複製して Excel で開く…」で複製を作ってから直してください（標準ファイルを書き換えないため）。"
-              "Excel で保存したら「再検査」を押してください。",
+              "CSV は「Excel で開く」で開いて直せます（選んでいるファイルをそのまま開きます。標準ファイルを残したいときは、"
+              "先にエクスプローラーで複製して、その複製を選んでください）。Excel で保存すると自動で検査し直します。"
+              "検査するのはキー名と行数・列数だけです。サブモデルで直すのは表の本体 DEG_2D_BC_IxDEG_* の行で、"
+              "軸の行（DEG_2D_DEG_* は 1.0 から大きい順、DEG_2D_I_* は小さい順で最後が 1.0）は並びを崩さないでください。",
         "en": "Panel information used by the degradation core, split into per-panel-type values (degradation model) "
               "and per-panel values (BC settings). Files are picked from the model parameter / BC settings folders above. "
-              "To edit a CSV, use \"Duplicate & open in Excel…\" and edit the copy (the standard files stay untouched). "
-              "Press \"Re-check\" after saving in Excel."},
+              "\"Open in Excel\" opens the selected file as is (to keep a standard file, copy it in Explorer first and pick "
+              "the copy). Saving in Excel triggers a re-check automatically. The check covers key names and row/column "
+              "counts only. In the sub model, edit the table rows DEG_2D_BC_IxDEG_*; keep the axis rows in order "
+              "(DEG_2D_DEG_*: descending from 1.0, DEG_2D_I_*: ascending, ending at 1.0)."},
     "panel.grp.type": {"ja": "機種（劣化モデル：同じ機種で共通）",
                        "en": "Panel type (degradation model; common to a panel type)"},
     "panel.grp.unit": {"ja": "個体（BC設定：パネル1枚ごと）",
@@ -125,22 +129,21 @@ STR: dict[str, dict[str, str]] = {
     "panel.sm": {"ja": "サブモデル（degparam_sm）", "en": "Sub model (degparam_sm)"},
     "panel.mm": {"ja": "マスターモデル（degparam_mm）", "en": "Master model (degparam_mm)"},
     "panel.bcset": {"ja": "BC設定（bcsetting）", "en": "BC settings (bcsetting)"},
-    "panel.btn.dup_excel": {"ja": "複製して Excel で開く…", "en": "Duplicate && open in Excel…"},
+    "panel.btn.open_excel": {"ja": "Excel で開く", "en": "Open in Excel"},
     "panel.btn.recheck": {"ja": "再検査", "en": "Re-check"},
     "panel.ok": {"ja": "✓ 使えます（{n} Band）", "en": "✓ OK ({n} bands)"},
     "panel.ng": {"ja": "✗ 使えません：\n{problems}", "en": "✗ Not usable:\n{problems}"},
     "panel.check.title": {"ja": "パネル設定ファイルの検査", "en": "Panel settings file check"},
     "panel.check.msg": {
-        "ja": "{name} に問題があります：\n{problems}\n\n選択はそのままにします。直してから「再検査」を押してください。",
-        "en": "{name} has problems:\n{problems}\n\nThe selection is kept. Fix the file and press \"Re-check\"."},
-    "panel.dup.title": {"ja": "複製して Excel で開く", "en": "Duplicate & open in Excel"},
-    "panel.dup.missing": {"ja": "元のファイルがありません: {path}", "en": "Source file not found: {path}"},
-    "panel.dup.same": {"ja": "元のファイルと同じ名前には複製できません。別の名前を指定してください。",
-                       "en": "Cannot duplicate onto the source file. Choose another name."},
-    "panel.dup.done": {"ja": "複製して開きました: {path}（Excel で保存したら「再検査」を押してください）",
-                       "en": "Duplicated and opened: {path} (press \"Re-check\" after saving in Excel)"},
-    "panel.dup.open_fail": {"ja": "複製しましたが、開けませんでした: {path}",
-                            "en": "Duplicated, but could not open: {path}"},
+        "ja": "{name} に問題があります：\n{problems}\n\n選択はそのままにします。直して保存すると自動で検査し直します。",
+        "en": "{name} has problems:\n{problems}\n\nThe selection is kept. Saving the fixed file triggers a re-check."},
+    "panel.open.title": {"ja": "Excel で開く", "en": "Open in Excel"},
+    "panel.open.missing": {"ja": "ファイルがありません: {path}", "en": "File not found: {path}"},
+    "panel.open.fail": {"ja": "開けませんでした: {path}", "en": "Could not open: {path}"},
+    "panel.open.done": {"ja": "開きました: {path}（Excel で保存すると自動で検査し直します）",
+                        "en": "Opened: {path} (saving in Excel triggers a re-check)"},
+    "panel.recheck.auto": {"ja": "ファイルが変わったため検査し直しました: {names}",
+                           "en": "File changed; re-checked: {names}"},
     "panel.err.run": {"ja": "パネル設定（①）を使えません。\n\n{msg}",
                       "en": "The panel settings (tab 1) cannot be used.\n\n{msg}"},
     "panel.err.step_sm": {"ja": "ステップ #{n} のサブモデルの差し替え {name} を使えません:\n{problems}",

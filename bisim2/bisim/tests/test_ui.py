@@ -1019,10 +1019,12 @@ def test_pick_panel_file_checks_and_keeps_selection():
     _close(win)
 
 
-def test_duplicate_and_open_panel_file():
+def test_open_panel_file_in_excel_and_auto_recheck():
+    """「Excel で開く」は選んでいるファイルをそのまま開く（複製しない）。Excel で保存したら自動で検査し直す（2026-11-18）。"""
     if not _pyside_ok():
         return
-    from bisim.paths import STD_BCSET
+    import shutil
+    from bisim.paths import STD_BCSET, STD_DEGPARAM_SM
     from bisim.ui.tabs import folders as folders_mod
     win = _new_window()
     ft = win.folders_tab
@@ -1030,23 +1032,46 @@ def test_duplicate_and_open_panel_file():
     orig_open = folders_mod.open_external
     folders_mod.open_external = lambda p: opened.append(Path(p)) or True
     with tempfile.TemporaryDirectory() as d:
-        dst = Path(d) / "bc_unit7.csv"
-        warned, restore = _stub_dialogs(save_path=dst)
+        d = Path(d)
+        sm = d / "sm_unit.csv"
+        shutil.copyfile(STD_DEGPARAM_SM, sm)
+        shutil.copyfile(STD_BCSET, d / "bcsetting.csv")
+        win.sequence.folders["model"] = win.sequence.folders["bcset"] = str(d)
+        win.sequence.panel.degparam_sm, win.sequence.panel.bcsetting = "sm_unit.csv", "bcsetting.csv"
+        warned, restore = _stub_dialogs()
         try:
-            ft._dup_and_open("bcset")
-            assert dst.read_bytes() == STD_BCSET.read_bytes()            # 複製（中身はそのまま）
-            assert win.sequence.panel.bcsetting == "bc_unit7.csv"
-            assert win.sequence.folders["bcset"] == str(Path(d))
-            assert opened == [dst] and not warned
-            # 元のファイルと同じ名前には複製しない
-            restore()
-            warned, restore = _stub_dialogs(save_path=dst)
-            ft._dup_and_open("bcset")
-            assert warned and opened == [dst]
+            ft.refresh_panel()
+            assert t_ok(ft, "sm")
+            files_before = sorted(p.name for p in d.iterdir())
+            ft._open_in_excel("sm")
+            assert opened == [sm] and not warned
+            assert sorted(p.name for p in d.iterdir()) == files_before     # 複製しない
+            # Excel で保存した（軸の行を消した）→ 自動で検査し直す（通知を待つ。来なければ直接確かめる）
+            lines = [ln for ln in sm.read_text(encoding="utf-8").splitlines() if not ln.startswith("DEG_2D_I_R,")]
+            sm.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            deadline = time.time() + 5
+            while t_ok(ft, "sm") and time.time() < deadline:
+                _app().processEvents()
+                time.sleep(0.05)
+            ft._watch.check_now()
+            assert not t_ok(ft, "sm") and "DEG_2D_I_R" in ft.file_status["sm"].text()
+            # 直して保存 → ✓ に戻る
+            shutil.copyfile(STD_DEGPARAM_SM, sm)
+            ft._watch.check_now()
+            assert t_ok(ft, "sm")
+            # ファイルが無ければ警告して開かない
+            win.sequence.panel.bcsetting = "none.csv"
+            ft._open_in_excel("bcset")
+            assert warned and opened == [sm]
         finally:
             restore()
             folders_mod.open_external = orig_open
-    _close(win)
+            _close(win)
+
+
+def t_ok(ft, kind: str) -> bool:
+    """①のパネル設定欄の検査結果が ✓ か。"""
+    return ft.file_status[kind].text().startswith("✓")
 
 
 def test_model_rebuilt_when_panel_changes():
@@ -1173,19 +1198,22 @@ def test_sm_override_via_config_tab():
         assert cfg.cb_sm.isChecked() and r0.sm_override == str(alt.resolve())
         # 実行前の検査も通る
         assert win._ensure_model([0, 1])
-        # 複製して Excel で開く → 複製が差し替えになる（モデルフォルダ内ならファイル名）
-        win.sequence.folders["model"] = str(d)
-        dup = d / "sm_alt2.csv"
+        # Excel で開く → 差し替えのファイルをそのまま開く（複製しない）。保存したら自動で検査し直す
         opened = []
         orig_open = folders_mod.open_external
         folders_mod.open_external = lambda p: opened.append(Path(p)) or True
-        warned, restore = _stub_dialogs(save_path=dup)
         try:
-            cfg._dup_sm()
+            cfg._open_sm()
         finally:
-            restore()
             folders_mod.open_external = orig_open
-        assert dup.exists() and opened == [dup] and r0.sm_override == "sm_alt2.csv"
+        assert opened == [alt.resolve()] and sorted(p.name for p in d.iterdir()) == ["sm_alt.csv"]
+        lines = [ln for ln in alt.read_text(encoding="utf-8").splitlines() if not ln.startswith("DEG_2D_I_G,")]
+        alt.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        cfg._sm_watch.check_now()
+        assert "DEG_2D_I_G" in cfg.lbl_sm_status.text()
+        shutil.copyfile(STD_DEGPARAM_SM, alt)
+        cfg._sm_watch.check_now()
+        assert "OK" in cfg.lbl_sm_status.text()
         # チェックを外すと差し替えを解除
         cfg.cb_sm.setChecked(False)
         assert r0.sm_override == "" and STD_DEGPARAM_SM.name in cfg.lbl_sm_status.text()

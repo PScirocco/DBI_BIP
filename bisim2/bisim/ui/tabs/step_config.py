@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 from bisim import engine, naming, paramio
 from bisim.model import STEP_TYPES, Recipe, Sequence
 from bisim.ui.i18n import t
-from bisim.ui.tabs._common import with_btn
+from bisim.ui.tabs._common import FileWatch, with_btn
 from bisim.ui.widgets import ImagePanel, read_first_frame
 
 IMG_FILTER = "画像・動画 / images & movies (*.png *.mp4);;すべて / all (*)"
@@ -171,12 +171,14 @@ class StepConfigTab(QWidget):
         self.ed_sm.setReadOnly(True)
         self.b_sm = QPushButton(t("btn.browse"))
         self.b_sm.clicked.connect(self._pick_sm)
-        self.b_sm_dup = QPushButton(t("panel.btn.dup_excel"))
-        self.b_sm_dup.clicked.connect(self._dup_sm)
+        self.b_sm_open = QPushButton(t("panel.btn.open_excel"))
+        self.b_sm_open.clicked.connect(self._open_sm)
+        # 差し替えのファイル（と①の bcsetting）を Excel で保存したら検査し直す（2026-11-18）
+        self._sm_watch = FileWatch(self, self._on_sm_file_changed)
         row_sm = QHBoxLayout()
         row_sm.addWidget(self.ed_sm, 1)
         row_sm.addWidget(self.b_sm)
-        row_sm.addWidget(self.b_sm_dup)
+        row_sm.addWidget(self.b_sm_open)
         gs.addLayout(row_sm)
         self.lbl_sm_status = QLabel("")
         self.lbl_sm_status.setWordWrap(True)
@@ -329,11 +331,12 @@ class StepConfigTab(QWidget):
     def _sync_sm_widgets(self):
         """欄の有効・無効と状態表示だけ（レシピは変えない）。"""
         on = self.recipe is not None and self.cb_sm.isChecked()
-        for w in (self.ed_sm, self.b_sm, self.b_sm_dup):
+        for w in (self.ed_sm, self.b_sm, self.b_sm_open):
             w.setEnabled(on)
         if self.recipe is None:
             self.ed_sm.setText("")
             self.lbl_sm_status.setText("")
+            self._sm_watch.set_paths([])
             return
         self._show_sm_status()
 
@@ -343,6 +346,7 @@ class StepConfigTab(QWidget):
             self.ed_sm.setText("")
             self.lbl_sm_status.setStyleSheet("color:#555;")
             self.lbl_sm_status.setText(t("cfg.sm.base", name=seq.panel.degparam_sm))
+            self._sm_watch.set_paths([])
             return
         self.ed_sm.setText(Path(r.sm_override).name)
         path = Path(self._folders()["model"]) / r.sm_override      # 絶対パスならそのまま
@@ -355,7 +359,17 @@ class StepConfigTab(QWidget):
         else:
             self.lbl_sm_status.setStyleSheet("color:#b00020;")
             self.lbl_sm_status.setText(t("panel.ng", problems="\n".join(chk.problems)))
+        self._sm_watch.set_paths([path, seq.bcset_path()])
         return chk
+
+    def _on_sm_file_changed(self, changed: list):
+        """差し替えのファイル（または bcsetting）が変わった（Excel で保存した）→ 検査し直す。"""
+        if self.recipe is None or not self.recipe.sm_override:
+            return
+        names = ", ".join(p.name for p in changed)
+        self.main.logger.action(f"サブモデルの差し替えのファイルが変わったため検査し直しました: {names}")
+        self._show_sm_status()
+        self.main.statusBar().showMessage(t("panel.recheck.auto", names=names), 8000)
 
     def _set_sm_override(self, p: Path, warn: bool = True):
         """差し替えのファイルを設定する。モデルフォルダ内ならファイル名、外なら絶対パスで持つ
@@ -378,17 +392,14 @@ class StepConfigTab(QWidget):
         if path:
             self._set_sm_override(Path(path))
 
-    def _dup_sm(self):
-        """今の差し替え（無ければシーケンスの sm）を複製して Excel で開き、差し替えに設定する。"""
-        if self.recipe is None:
+    def _open_sm(self):
+        """差し替えのファイルを Excel で開く（複製はしない。保存すると自動で検査し直す）。"""
+        if self.recipe is None or not self.recipe.sm_override:
             return
-        from bisim.ui.tabs.folders import duplicate_and_open
-        r = self.recipe
-        src = self.main.sequence.sm_path(self.row) if r.sm_override else self.main.sequence.sm_path()
-        dst = duplicate_and_open(self, src, self.main.logger)
-        if dst is not None:
-            self._set_sm_override(dst, warn=False)
-            self.main.statusBar().showMessage(t("panel.dup.done", path=str(dst)), 8000)
+        from bisim.ui.tabs.folders import open_in_excel
+        path = self.main.sequence.sm_path(self.row)
+        if open_in_excel(self, path, self.main.logger):
+            self.main.statusBar().showMessage(t("panel.open.done", path=str(path)), 8000)
 
     def _apply(self):
         if self.recipe is None or not self._collect_into_recipe():
@@ -613,7 +624,7 @@ class StepConfigTab(QWidget):
         self.gb_sm.setTitle(t("cfg.grp.sm"))
         self.cb_sm.setText(t("cfg.sm.cb"))
         self.b_sm.setText(t("btn.browse"))
-        self.b_sm_dup.setText(t("panel.btn.dup_excel"))
+        self.b_sm_open.setText(t("panel.btn.open_excel"))
         for key, cb in self._future_cbs.items():
             cb.setText(t(key))
         self.btn_apply.setText(t("cfg.btn.apply"))

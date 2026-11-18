@@ -781,18 +781,22 @@ def test_check_panel_files_reports_problems():
         p = _edit_csv(STD_DEGPARAM_SM, d / "a.csv", drop="DEG_2D_I_G")
         assert "DEG_2D_I_G" in engine.check_sm(p).problems[0]
         sm = engine.check_sm(STD_DEGPARAM_SM).data
+        # 値の並び順・軸の端の値は見ない（2026-11-18 担当者判断：キー名と行数・列数だけ）
         deg = list(sm["DEG_2D_DEG_R"])
         p = _edit_csv(STD_DEGPARAM_SM, d / "b.csv", key="DEG_2D_DEG_R", values=[0.995] + deg[1:])
-        assert any("DEG_2D_DEG_R の最初の値は 1" in x for x in engine.check_sm(p).problems)
+        assert engine.check_sm(p).ok
         i_ax = list(sm["DEG_2D_I_B"])
         i_ax[0], i_ax[1] = i_ax[1], i_ax[0]
         p = _edit_csv(STD_DEGPARAM_SM, d / "c.csv", key="DEG_2D_I_B", values=i_ax)
-        assert any("DEG_2D_I_B は小さい順" in x for x in engine.check_sm(p).problems)
+        assert engine.check_sm(p).ok
+        # 軸の値の数が DEG_2D_WRD_I と合わない → 読み込みに失敗（列数の検査）
+        p = _edit_csv(STD_DEGPARAM_SM, d / "c2.csv", key="DEG_2D_I_B", values=list(sm["DEG_2D_I_B"])[:-1])
+        assert any("読み込みに失敗" in x for x in engine.check_sm(p).problems)
         bc = engine.check_bcset(STD_BCSET).data
         dbv = list(bc["DBV_NIT_BC"])
         dbv[2], dbv[3] = dbv[3], dbv[2]
         p = _edit_csv(STD_BCSET, d / "d.csv", key="DBV_NIT_BC", values=dbv)
-        assert any("DBV_NIT_BC は大きい順" in x for x in engine.check_bcset(p).problems)
+        assert engine.check_bcset(p).ok
         p = _edit_csv(STD_BCSET, d / "e.csv", key="DUTY_BC", values=list(bc["DUTY_BC"])[:-1])
         assert any("DUTY_BC の値の数 14" in x for x in engine.check_bcset(p).problems)
         try:

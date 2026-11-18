@@ -212,11 +212,6 @@ def _csv_keys(path: Path) -> set:
     return keys
 
 
-def _strictly(arr, order: str) -> bool:
-    d = np.diff(np.asarray(arr, dtype=float))
-    return bool(np.all(d > 0)) if order == "asc" else bool(np.all(d < 0))
-
-
 @dataclass(eq=False)
 class PanelCheck:
     """パネル設定ファイルの検査結果。``problems`` が空なら使える。"""
@@ -231,7 +226,10 @@ class PanelCheck:
 
 
 def check_bcset(path) -> PanelCheck:
-    """``bcsetting.csv`` の検査：ファイルの有無・キー行の欠落・読み込み・各 Band の列数・並び順。"""
+    """``bcsetting.csv`` の検査：ファイルの有無・キー行の欠落・読み込み（行数・列数）・各 Band の値の数。
+
+    値の並び順（大きい順・小さい順）は見ない（2026-11-18 担当者判断：キー名と行数・列数だけ）。
+    """
     p = Path(path)
     chk = PanelCheck()
     if not p.is_file():
@@ -254,21 +252,18 @@ def check_bcset(path) -> PanelCheck:
     for k in ("DBV_NIT_BC", "DUTY_BC", "CURR_BC_R", "CURR_BC_G", "CURR_BC_B"):
         if len(bc[k]) != n:
             chk.problems.append(f"{k} の値の数 {len(bc[k])} が BC_BAND_NUM={n} と違います")
-    if len(bc["DBV_NIT_BC"]) == n and not _strictly(bc["DBV_NIT_BC"], "desc"):
-        chk.problems.append("DBV_NIT_BC は大きい順（降順）に並べてください")
     if not len(bc["DBV_NIT_DPK"]) < n:     # 通常の最大 Band（HBM）＝DBV_NIT_BC[len(DBV_NIT_DPK)]
         chk.problems.append(f"DBV_NIT_DPK の値の数 {len(bc['DBV_NIT_DPK'])} は BC_BAND_NUM={n} より少なくしてください")
-    if not _strictly(bc["GI_LUT_GRY"], "asc"):
-        chk.problems.append("GI_LUT_GRY は小さい順（昇順）に並べてください")
     chk.band_num, chk.data = n, bc
     return chk
 
 
 def check_sm(path, band_num: Optional[int] = None) -> PanelCheck:
-    """``degparam_sm.csv`` の検査：ファイルの有無・キー行の欠落・読み込み・軸の並び順・Band 数。
+    """``degparam_sm.csv`` の検査：ファイルの有無・キー行の欠落・読み込み（行数・列数）・Band 数。
 
-    軸の決まり（``source/main.py`` の説明）：劣化軸 ``DEG_2D_DEG_*`` は 1.0 から始まる降順、
-    電流軸 ``DEG_2D_I_*`` は昇順で最後が 1.0。``band_num`` を渡すと bcsetting の Band 数と比べる。
+    ``band_num`` を渡すと bcsetting の Band 数と比べる。
+    軸の値の決まり（``source/main.py`` の説明：劣化軸 ``DEG_2D_DEG_*`` は 1.0 から始まる降順、電流軸 ``DEG_2D_I_*`` は
+    昇順で最後が 1.0）は見ない（2026-11-18 担当者判断：キー名と行数・列数だけ）。守られていないと deg2 の補間が正しくならない。
     """
     p = Path(path)
     chk = PanelCheck()
@@ -288,16 +283,6 @@ def check_sm(path, band_num: Optional[int] = None) -> PanelCheck:
         chk.problems.append("読み込みに失敗しました（軸の値の数が DEG_2D_WRD_DEG・DEG_2D_WRD_I と合わない、"
                             "表の行数・列数が合わない、数値でない値がある、など）")
         return chk
-    for c in "RGB":
-        deg_ax, i_ax = sm[f"DEG_2D_DEG_{c}"], sm[f"DEG_2D_I_{c}"]
-        if len(deg_ax) and float(deg_ax[0]) != 1.0:
-            chk.problems.append(f"DEG_2D_DEG_{c} の最初の値は 1 にしてください（今は {float(deg_ax[0]):g}）")
-        if not _strictly(deg_ax, "desc"):
-            chk.problems.append(f"DEG_2D_DEG_{c} は大きい順（降順）に並べてください")
-        if len(i_ax) and float(i_ax[-1]) != 1.0:
-            chk.problems.append(f"DEG_2D_I_{c} の最後の値は 1 にしてください（今は {float(i_ax[-1]):g}）")
-        if not _strictly(i_ax, "asc"):
-            chk.problems.append(f"DEG_2D_I_{c} は小さい順（昇順）に並べてください")
     n = int(sm["DEG_2D_BC_IxDEG_R"].shape[0])
     if band_num is not None and n != band_num:
         chk.problems.append(f"Band 数 {n} が bcsetting の BC_BAND_NUM={band_num} と違います")

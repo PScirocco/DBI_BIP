@@ -4,13 +4,13 @@
 - パネル設定（シーケンスに1組。2026-11-17・11-18 決定）
   - 機種（劣化モデル）：サブモデル ``degparam_sm.csv``（モデルフォルダ）、マスターモデル mm の表（CSV 読込・保存）
   - 個体（BC設定）：``bcsetting.csv``（BC設定フォルダ）
-  - ファイルを選ぶと検査し、結果を欄の下に出す（問題があっても選択は残す。Excel で直して「再検査」）
-  - 「複製して Excel で開く…」：複製先を選んで複製 → 欄に設定 → 既定のアプリで開く
-    （標準ファイルを直接書き換えないため。CSV は Excel で直す方針）
+  - ファイルを選ぶと検査し、結果を欄の下に出す（問題があっても選択は残す）。検査はキー名と行数・列数だけ
+  - 「Excel で開く」：選んでいるファイルをそのまま既定のアプリ（Excel）で開く。
+    複製はしない（ファイルの複製・名前はユーザーが決める。2026-11-18 担当者判断で「複製して Excel で開く」をやめた）
+  - ファイルが変わったら（Excel で保存したら）自動で検査し直す（``FileWatch``）。「再検査」ボタンも残す
 """
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from PySide6.QtCore import QUrl
@@ -24,7 +24,7 @@ from bisim import engine, naming, paramio
 from bisim.model import MODEL_KEYS
 from bisim.paths import FOLDER_KEYS
 from bisim.ui.i18n import t
-from bisim.ui.tabs._common import folder_label, with_btn
+from bisim.ui.tabs._common import FileWatch, folder_label, with_btn
 
 # パネル設定のファイル欄：種類 → (PanelConfig の属性名, フォルダのキー)
 PANEL_FILES = {"sm": ("degparam_sm", "model"), "bcset": ("bcsetting", "bcset")}
@@ -35,34 +35,19 @@ def open_external(path) -> bool:
     return QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
 
-def duplicate_and_open(parent: QWidget, src: Path, logger) -> "Path | None":
-    """「複製して Excel で開く」（2026-11-18 決定）：保存ダイアログで複製先を選ぶ（初期値＝元のフォルダ、
-    名前＝``元の名前_YYMMDD-HHMM.csv``）→ 複製 → 既定のアプリで開く。
+def open_in_excel(parent: QWidget, path: Path, logger) -> bool:
+    """「Excel で開く」：ファイルをそのまま既定のアプリで開く（複製はしない。2026-11-18）。
 
-    複製できたら複製先のパスを返す（開けなかった場合も返す。警告は出す）。やめた・失敗なら ``None``。
-    ①のパネル設定欄と③のサブモデルの差し替え欄で使う。
+    ①のパネル設定欄と③のサブモデルの差し替え欄で使う。開けたら True。
     """
-    if not src.is_file():
-        QMessageBox.warning(parent, t("panel.dup.title"), t("panel.dup.missing", path=str(src)))
-        return None
-    start = src.parent / f"{src.stem}_{naming.timestamp()}{src.suffix}"
-    path, _ = QFileDialog.getSaveFileName(parent, t("panel.dup.title"), str(start), "CSV (*.csv)")
-    if not path:
-        return None
-    dst = Path(path)
-    if dst.resolve() == src.resolve():
-        QMessageBox.warning(parent, t("panel.dup.title"), t("panel.dup.same"))
-        return None
-    try:
-        shutil.copyfile(src, dst)
-    except OSError as e:
-        QMessageBox.critical(parent, t("dlg.err.title"), str(e))
-        return None
-    logger.io("out", dst.name)
-    logger.action(f"パネル設定を複製: {src} → {dst}")
-    if not open_external(dst):
-        QMessageBox.warning(parent, t("panel.dup.title"), t("panel.dup.open_fail", path=str(dst)))
-    return dst
+    if not path.is_file():
+        QMessageBox.warning(parent, t("panel.open.title"), t("panel.open.missing", path=str(path)))
+        return False
+    logger.action(f"パネル設定のファイルを開く: {path}")
+    if not open_external(path):
+        QMessageBox.warning(parent, t("panel.open.title"), t("panel.open.fail", path=str(path)))
+        return False
+    return True
 
 
 class FoldersTab(QWidget):
@@ -73,6 +58,7 @@ class FoldersTab(QWidget):
         self.row_labels: dict[str, QLabel] = {}
         self.browse_btns: dict[str, QPushButton] = {}
         self._check_cache: dict = {}          # (種類, file_key, band) -> PanelCheck
+        self._watch = FileWatch(self, self._on_panel_files_changed)   # Excel で保存したら検査し直す
 
         host = QWidget()
         lay = QVBoxLayout(host)
@@ -121,7 +107,7 @@ class FoldersTab(QWidget):
         self.file_labels: dict[str, QLabel] = {}
         self.file_status: dict[str, QLabel] = {}
         self.file_browse: dict[str, QPushButton] = {}
-        self.file_dup: dict[str, QPushButton] = {}
+        self.file_open: dict[str, QPushButton] = {}
 
         # ---- 機種（劣化モデル）----
         self.gb_type = QGroupBox(t("panel.grp.type"))
@@ -172,8 +158,8 @@ class FoldersTab(QWidget):
         ed.setReadOnly(True)
         b = QPushButton(t("btn.browse"))
         b.clicked.connect(lambda _=False, k=kind: self._pick_panel_file(k))
-        d = QPushButton(t("panel.btn.dup_excel"))
-        d.clicked.connect(lambda _=False, k=kind: self._dup_and_open(k))
+        d = QPushButton(t("panel.btn.open_excel"))
+        d.clicked.connect(lambda _=False, k=kind: self._open_in_excel(k))
         row.addWidget(lbl)
         row.addWidget(ed, 1)
         row.addWidget(b)
@@ -183,7 +169,7 @@ class FoldersTab(QWidget):
         st.setWordWrap(True)
         box.addWidget(st)
         self.file_labels[kind], self.file_edits[kind], self.file_status[kind] = lbl, ed, st
-        self.file_browse[kind], self.file_dup[kind] = b, d
+        self.file_browse[kind], self.file_open[kind] = b, d
         return box
 
     def _panel(self):
@@ -229,7 +215,15 @@ class FoldersTab(QWidget):
                 lab.setStyleSheet("color:#b00020;")
             lab.setToolTip(str(self._panel_path(kind)))
         self._fill_mm_table()
+        self._watch.set_paths([self._panel_path(k) for k in PANEL_FILES])
         return {"bcset": bc, "sm": sm}
+
+    def _on_panel_files_changed(self, changed: list):
+        """パネル設定のファイルが変わった（Excel で保存した）→ 検査し直す。"""
+        names = ", ".join(p.name for p in changed)
+        self.main.logger.action(f"パネル設定のファイルが変わったため検査し直しました: {names}")
+        self.refresh_panel()
+        self.main.statusBar().showMessage(t("panel.recheck.auto", names=names), 8000)
 
     def _fill_mm_table(self):
         mm = self._panel().model_param
@@ -275,12 +269,11 @@ class FoldersTab(QWidget):
             QMessageBox.warning(self, t("panel.check.title"),
                                 t("panel.check.msg", name=p.name, problems="\n".join(chk.problems)))
 
-    def _dup_and_open(self, kind: str):
-        """複製して Excel で開く（2026-11-18 決定）。"""
-        dst = duplicate_and_open(self, self._panel_path(kind), self.main.logger)
-        if dst is not None:
-            self._set_panel_file(kind, dst, warn=False)
-            self.main.statusBar().showMessage(t("panel.dup.done", path=str(dst)), 8000)
+    def _open_in_excel(self, kind: str):
+        """選んでいるファイルを Excel で開く（保存すると自動で検査し直す）。"""
+        path = self._panel_path(kind)
+        if open_in_excel(self, path, self.main.logger):
+            self.main.statusBar().showMessage(t("panel.open.done", path=str(path)), 8000)
 
     def _load_mm_csv(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -350,7 +343,7 @@ class FoldersTab(QWidget):
         for kind in PANEL_FILES:
             self.file_labels[kind].setText(t(f"panel.{kind}"))
             self.file_browse[kind].setText(t("btn.browse"))
-            self.file_dup[kind].setText(t("panel.btn.dup_excel"))
+            self.file_open[kind].setText(t("panel.btn.open_excel"))
         self.lbl_mm.setText(t("panel.mm"))
         self.b_mm_load.setText(t("cfg.btn.load_csv"))
         self.b_mm_save.setText(t("cfg.btn.save_csv"))
