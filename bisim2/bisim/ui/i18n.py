@@ -211,10 +211,11 @@ STR: dict[str, dict[str, str]] = {
     "cfg.kind.note_eval": {
         "ja": "PQ評価：ストレスを貯めず、劣化後の見え方の画像・動画だけを作ります"
               "（入力は動画・静止画のどちらでも可）。温度設定なし（内部は {v:g}℃ 固定。"
-              "モデル変更までの暫定）。Aging 条件（Sim条件）は使いません。",
+              "モデル変更までの暫定）。Sim条件のうち Aging 条件は使わず、表示条件（DBV_NIT・DPK_ON・GADJ）だけ使います。",
         "en": "PQ eval: does not accumulate stress; only renders how the degraded panel looks "
               "(movie or still image). No temperature setting (fixed {v:g}degC internally, "
-              "provisional until the model update). Aging (Sim) conditions are not used."},
+              "provisional until the model update). Of the Sim conditions, only the display conditions "
+              "(DBV_NIT, DPK_ON, GADJ) are used; the aging conditions are not."},
     "cfg.size.title": {"ja": "画像サイズが違います", "en": "Image size mismatch"},
     "cfg.size.msg": {
         "ja": "選択した {sel}（{w}×{h}）は、シーケンスの基準サイズ（{rw}×{rh}）と違うため選択できません。\n\n"
@@ -240,6 +241,15 @@ STR: dict[str, dict[str, str]] = {
     "cfg.tmp_h": {"ja": "TMP_H [℃]", "en": "TMP_H [degC]"},
     "cfg.aging_time": {"ja": "AGING_TIME [秒]（目標Aging時間。0=無制限）",
                        "en": "AGING_TIME [s] (target aging time; 0 = unlimited)"},
+    "cfg.dbv_nit": {"ja": "DBV_NIT [nit]（パネルの輝度設定）", "en": "DBV_NIT [nit] (panel brightness setting)"},
+    "cfg.dpk_on": {"ja": "DPK_ON（DPK モード）", "en": "DPK_ON (DPK mode)"},
+    "cfg.dpk_on.cb": {"ja": "ON", "en": "ON"},
+    "cfg.gadj": {"ja": "GADJ（電流調整 ×倍）", "en": "GADJ (current adjustment, x)"},
+    "cfg.grp.sm": {"ja": "サブモデルの差し替え（任意。このステップの劣化後の見え方＝deg2 だけに効きます）",
+                   "en": "Sub-model override (optional; affects only how this step looks = deg2)"},
+    "cfg.sm.cb": {"ja": "このステップだけ別のサブモデルを使う", "en": "Use a different sub model for this step only"},
+    "cfg.sm.base": {"ja": "差し替えなし：パネル設定（①）のサブモデル {name} を使います",
+                    "en": "No override: uses the sub model {name} of the panel settings (tab 1)"},
     "cfg.init.file_r": {"ja": "初期 stat_r CSV", "en": "Initial stat_r CSV"},
     "cfg.init.file_g": {"ja": "初期 stat_g CSV", "en": "Initial stat_g CSV"},
     "cfg.init.file_b": {"ja": "初期 stat_b CSV", "en": "Initial stat_b CSV"},

@@ -35,6 +35,36 @@ def open_external(path) -> bool:
     return QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
 
+def duplicate_and_open(parent: QWidget, src: Path, logger) -> "Path | None":
+    """「複製して Excel で開く」（2026-11-18 決定）：保存ダイアログで複製先を選ぶ（初期値＝元のフォルダ、
+    名前＝``元の名前_YYMMDD-HHMM.csv``）→ 複製 → 既定のアプリで開く。
+
+    複製できたら複製先のパスを返す（開けなかった場合も返す。警告は出す）。やめた・失敗なら ``None``。
+    ①のパネル設定欄と③のサブモデルの差し替え欄で使う。
+    """
+    if not src.is_file():
+        QMessageBox.warning(parent, t("panel.dup.title"), t("panel.dup.missing", path=str(src)))
+        return None
+    start = src.parent / f"{src.stem}_{naming.timestamp()}{src.suffix}"
+    path, _ = QFileDialog.getSaveFileName(parent, t("panel.dup.title"), str(start), "CSV (*.csv)")
+    if not path:
+        return None
+    dst = Path(path)
+    if dst.resolve() == src.resolve():
+        QMessageBox.warning(parent, t("panel.dup.title"), t("panel.dup.same"))
+        return None
+    try:
+        shutil.copyfile(src, dst)
+    except OSError as e:
+        QMessageBox.critical(parent, t("dlg.err.title"), str(e))
+        return None
+    logger.io("out", dst.name)
+    logger.action(f"パネル設定を複製: {src} → {dst}")
+    if not open_external(dst):
+        QMessageBox.warning(parent, t("panel.dup.title"), t("panel.dup.open_fail", path=str(dst)))
+    return dst
+
+
 class FoldersTab(QWidget):
     def __init__(self, main):
         super().__init__()
@@ -247,30 +277,10 @@ class FoldersTab(QWidget):
 
     def _dup_and_open(self, kind: str):
         """複製して Excel で開く（2026-11-18 決定）。"""
-        src = self._panel_path(kind)
-        if not src.is_file():
-            QMessageBox.warning(self, t("panel.dup.title"), t("panel.dup.missing", path=str(src)))
-            return
-        start = src.parent / f"{src.stem}_{naming.timestamp()}{src.suffix}"
-        path, _ = QFileDialog.getSaveFileName(self, t("panel.dup.title"), str(start), "CSV (*.csv)")
-        if not path:
-            return
-        dst = Path(path)
-        if dst.resolve() == src.resolve():
-            QMessageBox.warning(self, t("panel.dup.title"), t("panel.dup.same"))
-            return
-        try:
-            shutil.copyfile(src, dst)
-        except OSError as e:
-            QMessageBox.critical(self, t("dlg.err.title"), str(e))
-            return
-        self.main.logger.io("out", dst.name)
-        self.main.logger.action(f"パネル設定を複製: {src} → {dst}")
-        self._set_panel_file(kind, dst, warn=False)
-        if open_external(dst):
+        dst = duplicate_and_open(self, self._panel_path(kind), self.main.logger)
+        if dst is not None:
+            self._set_panel_file(kind, dst, warn=False)
             self.main.statusBar().showMessage(t("panel.dup.done", path=str(dst)), 8000)
-        else:
-            QMessageBox.warning(self, t("panel.dup.title"), t("panel.dup.open_fail", path=str(dst)))
 
     def _load_mm_csv(self):
         path, _ = QFileDialog.getOpenFileName(

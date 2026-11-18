@@ -862,3 +862,25 @@ def test_run_sequence_uses_panel_mm_and_step_sm():
         # 2ステップ目（PQ評価）だけ sm を差し替え → deg2 が違う。1ステップ目は同じ sm
         assert not np.allclose(res_a[1].deg2.g, res_b[1].deg2.g)
         assert _model().sm_path == seq.sm_path(1)
+
+
+def test_eval_step_uses_display_conditions():
+    """PQ評価（dt=0）でも表示条件（DBV_NIT・DPK_ON・GADJ）はコアに渡る：deg2・画像は変わり、stat は貯まらない。"""
+    with tempfile.TemporaryDirectory() as d:
+        dd = Path(d)
+        f = _folders(d)
+        f["input_image"] = str(dd)
+        img = _small_still(dd)
+        age = Recipe(recipe_name="age", input_image=img, step_type="aging", heatmap_mode="fixed")
+        age.sim_param.update(ACCEL_RATIO=1e5, AGING_TIME=3e5)
+        st = engine.run_recipe(recipe=age, folders=f, sequence_name="T", nn="01", model=_model()).state
+        out = {}
+        for dbv in (2000.0, 600.0):
+            pq = Recipe(recipe_name="pq", input_image=img, step_type="eval")
+            pq.sim_param["DBV_NIT"] = dbv
+            init = engine.StressState(st.r.copy(), st.g.copy(), st.b.copy())
+            res = engine.run_recipe(recipe=pq, folders=f, sequence_name="T", nn="02", model=_model(),
+                                    initial_state=init)
+            assert np.array_equal(res.state.r, st.r)            # PQ評価はストレスを貯めない
+            out[dbv] = res
+        assert not np.allclose(out[2000.0].deg2.g, out[600.0].deg2.g)

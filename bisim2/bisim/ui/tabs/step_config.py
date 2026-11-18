@@ -3,8 +3,10 @@
 選択中レシピを編集する。プレビュー3面（入力 / ヒートマップ / 前ステップの画像）、
 Sim条件＋CSV、初期ストレス（なし / 前ステップ継承 / ファイル指定）。
 モデルパラメータ（mm）はフェーズF からシーケンスのパネル設定（①）に移した。
-ステップ種別（Aging / PQ評価）は手動で選ぶ。PQ評価ではヒートマップ・Sim条件の欄を隠す
-（ストレスを貯めない・温度設定なし。2026-10-19 決定）。
+ステップ種別（Aging / PQ評価）は手動で選ぶ。PQ評価ではヒートマップと Sim条件のうち Aging 条件
+（ACCEL_RATIO・TMP_L/H・AGING_TIME）の欄を隠す（ストレスを貯めない・温度設定なし。2026-10-19 決定）。
+表示条件（DBV_NIT・DPK_ON・GADJ）は PQ評価でも設定する（フェーズF）。
+サブモデルの差し替え（任意）：このステップだけ別の degparam_sm を使う（表示＝deg2 だけに効く）。
 入力画像・ヒートマップは選んだ時点でシーケンスの基準サイズと比べ、違えば警告して選ばせない。
 処理パイプライン・A/B は将来枠（無効表示）。
 """
@@ -128,6 +130,24 @@ class StepConfigTab(QWidget):
         f3.addRow(self.l_tl, self.sp_tl)
         f3.addRow(self.l_th, self.sp_th)
         f3.addRow(self.l_aging, self.sp_aging)
+        # 表示条件（新コア。フェーズF）：PQ評価のステップでも使う
+        self.sp_dbv = self._dspin(0.0, 1e6, 100.0, decimals=2)
+        self.cb_dpk = QCheckBox(t("cfg.dpk_on.cb"))
+        self.sp_gadj = [self._dspin(0.0, 100.0, 0.01, decimals=4) for _ in range(3)]
+        gadj_host = QWidget()
+        gl = QHBoxLayout(gadj_host)
+        gl.setContentsMargins(0, 0, 0, 0)
+        for c, sp in zip("RGB", self.sp_gadj):
+            gl.addWidget(QLabel(c))
+            gl.addWidget(sp, 1)
+        self.l_dbv = QLabel(t("cfg.dbv_nit"))
+        self.l_dpk = QLabel(t("cfg.dpk_on"))
+        self.l_gadj = QLabel(t("cfg.gadj"))
+        f3.addRow(self.l_dbv, self.sp_dbv)
+        f3.addRow(self.l_dpk, self.cb_dpk)
+        f3.addRow(self.l_gadj, gadj_host)
+        self._f3 = f3
+        self._aging_rows = (self.sp_accel, self.sp_tl, self.sp_th, self.sp_aging)  # PQ評価では隠す
         self.lbl_sim_csv = QLabel(t("cfg.sim_csv_none"))
         f3.addRow(self.lbl_sim_csv)
         hb_sim = QHBoxLayout()
@@ -140,6 +160,28 @@ class StepConfigTab(QWidget):
         hb_sim.addStretch(1)
         f3.addRow(hb_sim)
         form.addWidget(self.gb_sim)
+
+        # ---- サブモデルの差し替え（任意。2026-11-18 決定：表示＝deg2 だけに効く）----
+        self.gb_sm = QGroupBox(t("cfg.grp.sm"))
+        gs = QVBoxLayout(self.gb_sm)
+        self.cb_sm = QCheckBox(t("cfg.sm.cb"))
+        self.cb_sm.toggled.connect(self._on_sm_toggled)
+        gs.addWidget(self.cb_sm)
+        self.ed_sm = QLineEdit()
+        self.ed_sm.setReadOnly(True)
+        self.b_sm = QPushButton(t("btn.browse"))
+        self.b_sm.clicked.connect(self._pick_sm)
+        self.b_sm_dup = QPushButton(t("panel.btn.dup_excel"))
+        self.b_sm_dup.clicked.connect(self._dup_sm)
+        row_sm = QHBoxLayout()
+        row_sm.addWidget(self.ed_sm, 1)
+        row_sm.addWidget(self.b_sm)
+        row_sm.addWidget(self.b_sm_dup)
+        gs.addLayout(row_sm)
+        self.lbl_sm_status = QLabel("")
+        self.lbl_sm_status.setWordWrap(True)
+        gs.addWidget(self.lbl_sm_status)
+        form.addWidget(self.gb_sm)
 
         # ---- 将来拡張 ----
         self.gb_future = QGroupBox(t("cfg.grp.future"))
@@ -194,9 +236,11 @@ class StepConfigTab(QWidget):
     def set_enabled(self, on: bool):
         for w in (self.ed_name, self.cmb_kind, self.ed_img, self.cmb_init,
                   self.sp_accel, self.sp_tl, self.sp_th, self.sp_aging, self.btn_apply,
-                  self.b_img, self.cb_ht_fixed, self.b_load_sim, self.b_save_sim):
+                  self.b_img, self.cb_ht_fixed, self.b_load_sim, self.b_save_sim,
+                  self.sp_dbv, self.cb_dpk, *self.sp_gadj, self.cb_sm):
             w.setEnabled(on)
         self._sync_heatmap_widgets(on)
+        self._sync_sm_widgets()
 
     # -- load / collect --
     def load(self, recipe: Recipe | None, row: int | None):
@@ -233,8 +277,20 @@ class StepConfigTab(QWidget):
         self.sp_tl.setValue(recipe.sim_param["TMP_L"])
         self.sp_th.setValue(recipe.sim_param["TMP_H"])
         self.sp_aging.setValue(recipe.sim_param["AGING_TIME"])
+        self._set_display_fields(recipe.sim_param)
+        self.cb_sm.blockSignals(True)
+        self.cb_sm.setChecked(bool(recipe.sm_override))
+        self.cb_sm.blockSignals(False)
+        self._sync_sm_widgets()
         self._on_init_changed()
         self._refresh_previews()
+
+    def _set_display_fields(self, sim: dict):
+        """表示条件（DBV_NIT・DPK_ON・GADJ）の欄に値を入れる。"""
+        self.sp_dbv.setValue(float(sim["DBV_NIT"]))
+        self.cb_dpk.setChecked(int(sim["DPK_ON"]) == 1)
+        for sp, v in zip(self.sp_gadj, sim["GADJ"]):
+            sp.setValue(float(v))
 
     def _set_csv_labels(self):
         r = self.recipe
@@ -258,7 +314,81 @@ class StepConfigTab(QWidget):
         r.sim_param["TMP_L"] = self.sp_tl.value()
         r.sim_param["TMP_H"] = self.sp_th.value()
         r.sim_param["AGING_TIME"] = self.sp_aging.value()
+        r.sim_param["DBV_NIT"] = self.sp_dbv.value()
+        r.sim_param["DPK_ON"] = 1 if self.cb_dpk.isChecked() else 0
+        r.sim_param["GADJ"] = [sp.value() for sp in self.sp_gadj]
         return True
+
+    # -- サブモデルの差し替え（選んだ・外した時点でレシピに反映。入力画像の選択と同じ）--
+    def _on_sm_toggled(self, checked: bool):
+        if self.recipe is not None and not checked and self.recipe.sm_override:
+            self.recipe.sm_override = ""             # チェックを外した → シーケンスの sm に戻す
+            self.main.logger.action(f"レシピ '{self.recipe.recipe_name}' のサブモデルの差し替えを解除")
+        self._sync_sm_widgets()
+
+    def _sync_sm_widgets(self):
+        """欄の有効・無効と状態表示だけ（レシピは変えない）。"""
+        on = self.recipe is not None and self.cb_sm.isChecked()
+        for w in (self.ed_sm, self.b_sm, self.b_sm_dup):
+            w.setEnabled(on)
+        if self.recipe is None:
+            self.ed_sm.setText("")
+            self.lbl_sm_status.setText("")
+            return
+        self._show_sm_status()
+
+    def _show_sm_status(self):
+        seq, r = self.main.sequence, self.recipe
+        if not r.sm_override:
+            self.ed_sm.setText("")
+            self.lbl_sm_status.setStyleSheet("color:#555;")
+            self.lbl_sm_status.setText(t("cfg.sm.base", name=seq.panel.degparam_sm))
+            return
+        self.ed_sm.setText(Path(r.sm_override).name)
+        path = Path(self._folders()["model"]) / r.sm_override      # 絶対パスならそのまま
+        self.ed_sm.setToolTip(str(path))
+        band = engine.check_bcset(seq.bcset_path()).band_num
+        chk = engine.check_sm(path, band)
+        if chk.ok:
+            self.lbl_sm_status.setStyleSheet("color:#1b6e20;")
+            self.lbl_sm_status.setText(t("panel.ok", n=chk.band_num))
+        else:
+            self.lbl_sm_status.setStyleSheet("color:#b00020;")
+            self.lbl_sm_status.setText(t("panel.ng", problems="\n".join(chk.problems)))
+        return chk
+
+    def _set_sm_override(self, p: Path, warn: bool = True):
+        """差し替えのファイルを設定する。モデルフォルダ内ならファイル名、外なら絶対パスで持つ
+        （①のモデルフォルダを動かすとシーケンスの sm の場所が変わってしまうため）。"""
+        model_dir = Path(self._folders()["model"]).resolve()
+        r = self.recipe
+        r.sm_override = p.name if p.parent.resolve() == model_dir else str(p.resolve())
+        self.main.logger.action(f"レシピ '{r.recipe_name}' のサブモデルを差し替え: {p}")
+        chk = self._show_sm_status()
+        if warn and chk is not None and not chk.ok:
+            QMessageBox.warning(self, t("panel.check.title"),
+                                t("panel.check.msg", name=p.name, problems="\n".join(chk.problems)))
+
+    def _pick_sm(self):
+        if self.recipe is None:
+            return
+        cur = Path(self._folders()["model"]) / (self.recipe.sm_override or "")
+        start = str(cur.parent if self.recipe.sm_override else self._folders()["model"])
+        path, _ = QFileDialog.getOpenFileName(self, t("panel.sm"), start, "CSV (*.csv)")
+        if path:
+            self._set_sm_override(Path(path))
+
+    def _dup_sm(self):
+        """今の差し替え（無ければシーケンスの sm）を複製して Excel で開き、差し替えに設定する。"""
+        if self.recipe is None:
+            return
+        from bisim.ui.tabs.folders import duplicate_and_open
+        r = self.recipe
+        src = self.main.sequence.sm_path(self.row) if r.sm_override else self.main.sequence.sm_path()
+        dst = duplicate_and_open(self, src, self.main.logger)
+        if dst is not None:
+            self._set_sm_override(dst, warn=False)
+            self.main.statusBar().showMessage(t("panel.dup.done", path=str(dst)), 8000)
 
     def _apply(self):
         if self.recipe is None or not self._collect_into_recipe():
@@ -325,11 +455,15 @@ class StepConfigTab(QWidget):
         self.main.run_tab.refresh_steps()
 
     def _sync_kind_widgets(self, refresh: bool = True):
-        """PQ評価ではヒートマップ（温度）と Sim条件（Aging条件）の欄を隠す。"""
+        """PQ評価ではヒートマップ（温度）と Sim条件のうち Aging 条件の欄を隠す。
+
+        表示条件（DBV_NIT・DPK_ON・GADJ）は PQ評価でも使うので出したまま（フェーズF。2026-11-17 決定）。
+        """
         is_eval = STEP_TYPES[self.cmb_kind.currentIndex()] == "eval"
         self._f1.setRowVisible(self._row_ht, not is_eval)
         self._f1.setRowVisible(self._row_ht_fixed, not is_eval)
-        self.gb_sim.setVisible(not is_eval)
+        for w in self._aging_rows:
+            self._f3.setRowVisible(w, not is_eval)
         self.lbl_kind_note.setText(
             t("cfg.kind.note_eval", v=engine.EVAL_TEMP_C) if is_eval else t("cfg.kind.note_aging"))
         if refresh and self.recipe is not None:
@@ -419,6 +553,7 @@ class StepConfigTab(QWidget):
         self.sp_tl.setValue(s["TMP_L"])
         self.sp_th.setValue(s["TMP_H"])
         self.sp_aging.setValue(s["AGING_TIME"])
+        self._set_display_fields(s)
         self._set_csv_labels()
         self.main.folders_changed()
 
@@ -471,6 +606,14 @@ class StepConfigTab(QWidget):
         self.l_tl.setText(t("cfg.tmp_l"))
         self.l_th.setText(t("cfg.tmp_h"))
         self.l_aging.setText(t("cfg.aging_time"))
+        self.l_dbv.setText(t("cfg.dbv_nit"))
+        self.l_dpk.setText(t("cfg.dpk_on"))
+        self.cb_dpk.setText(t("cfg.dpk_on.cb"))
+        self.l_gadj.setText(t("cfg.gadj"))
+        self.gb_sm.setTitle(t("cfg.grp.sm"))
+        self.cb_sm.setText(t("cfg.sm.cb"))
+        self.b_sm.setText(t("btn.browse"))
+        self.b_sm_dup.setText(t("panel.btn.dup_excel"))
         for key, cb in self._future_cbs.items():
             cb.setText(t(key))
         self.btn_apply.setText(t("cfg.btn.apply"))

@@ -196,14 +196,17 @@ def test_step_type_selector_switches_settings():
     cfg.ed_name.setText("pq_A")             # 未適用の入力が種別変更で消えないこと
     cfg.cmb_kind.setCurrentIndex(1)         # → PQ評価（即時反映）
     assert r.step_type == "eval"
-    assert not cfg.gb_sim.isVisibleTo(cfg)
+    # Sim条件のうち Aging 条件は隠し、表示条件（DBV_NIT・DPK_ON・GADJ）は出したまま（フェーズF）
+    assert cfg.gb_sim.isVisibleTo(cfg)
+    assert not any(cfg._f3.isRowVisible(w) for w in cfg._aging_rows)
+    assert cfg._f3.isRowVisible(cfg.sp_dbv) and cfg._f3.isRowVisible(cfg.cb_dpk)
     assert not cfg._f1.isRowVisible(cfg._row_ht) and not cfg._f1.isRowVisible(cfg._row_ht_fixed)
     assert cfg.ed_name.text() == "pq_A"
     assert win.steps_tab.table.item(0, 3).text() == t("kind.eval")    # ②の Type 列
     assert cfg._collect_into_recipe() and r.step_type == "eval" and r.recipe_name == "pq_A"
 
     cfg.cmb_kind.setCurrentIndex(0)         # → Aging に戻すと欄が戻る
-    assert r.step_type == "aging" and cfg.gb_sim.isVisibleTo(cfg)
+    assert r.step_type == "aging" and all(cfg._f3.isRowVisible(w) for w in cfg._aging_rows)
     assert win.steps_tab.table.item(0, 3).text() == t("kind.aging")
     _close(win)
 
@@ -958,4 +961,97 @@ def test_open_old_sequence_logs_panel_migration():
     assert win.sequence.panel.model_param["N"] == [2.0, 2.0, 2.0]
     assert win.folders_tab.tbl_mm.item(0, 0).text() == "2"
     assert sum("シーケンス読込の注意" in x for x in logged) == 2
+    _close(win)
+
+
+# --------------------------------------------------------------------------- #
+#  ③ 表示条件・サブモデルの差し替え（フェーズF 手順5-3）
+# --------------------------------------------------------------------------- #
+def test_display_conditions_via_config_tab():
+    if not _pyside_ok():
+        return
+    from PySide6.QtWidgets import QFileDialog
+    win = _new_window()
+    win.steps_tab._add()
+    cfg = win.config_tab
+    r = win.sequence.recipes[0]
+    assert cfg.sp_dbv.value() == 2000.0 and not cfg.cb_dpk.isChecked()
+    assert [sp.value() for sp in cfg.sp_gadj] == [1.0, 1.0, 1.0]
+    cfg.cmb_kind.setCurrentIndex(1)                     # PQ評価でも設定できる
+    cfg.sp_dbv.setValue(600.0)
+    cfg.cb_dpk.setChecked(True)
+    for sp, v in zip(cfg.sp_gadj, (1.1, 1.0, 0.95)):
+        sp.setValue(v)
+    assert cfg._collect_into_recipe()
+    assert r.sim_param["DBV_NIT"] == 600.0 and r.sim_param["DPK_ON"] == 1
+    assert r.sim_param["GADJ"] == [1.1, 1.0, 0.95]
+    with tempfile.TemporaryDirectory() as d:
+        p = str(Path(d) / "pq_sim.csv")
+        orig_s, orig_o = QFileDialog.getSaveFileName, QFileDialog.getOpenFileName
+        QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (p, ""))
+        QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (p, ""))
+        try:
+            cfg._save_sim_csv()
+            cfg.sp_dbv.setValue(1.0)
+            cfg.cb_dpk.setChecked(False)
+            cfg._load_sim_csv()                         # CSV から読むと表示条件も入る
+        finally:
+            QFileDialog.getSaveFileName, QFileDialog.getOpenFileName = orig_s, orig_o
+    assert cfg.sp_dbv.value() == 600.0 and cfg.cb_dpk.isChecked()
+    assert abs(cfg.sp_gadj[2].value() - 0.95) < 1e-9
+    _close(win)
+
+
+def test_sm_override_via_config_tab():
+    if not _pyside_ok():
+        return
+    import shutil
+    from bisim.paths import STD_DEGPARAM_SM
+    from bisim.ui.tabs import folders as folders_mod
+    win = _new_window()
+    win.steps_tab._add()
+    win.steps_tab._add()
+    cfg = win.config_tab
+    win.select_step(0)
+    r0, r1 = win.sequence.recipes
+    assert not cfg.cb_sm.isChecked() and not cfg.b_sm.isEnabled()
+    assert STD_DEGPARAM_SM.name in cfg.lbl_sm_status.text()
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        alt = d / "sm_alt.csv"
+        shutil.copyfile(STD_DEGPARAM_SM, alt)
+        cfg.cb_sm.setChecked(True)
+        assert cfg.b_sm.isEnabled()
+        warned, restore = _stub_dialogs(open_path=alt)
+        try:
+            cfg._pick_sm()                                  # モデルフォルダの外 → 絶対パスで持つ
+        finally:
+            restore()
+        assert not warned and r0.sm_override == str(alt.resolve())
+        assert win.sequence.sm_path(0) == alt.resolve()
+        assert "OK" in cfg.lbl_sm_status.text() and cfg.ed_sm.text() == "sm_alt.csv"
+        assert win.sequence.folders["model"] != str(d)     # ①のモデルフォルダは動かさない
+        # 別のステップを選んで戻っても消えない
+        win.select_step(1)
+        assert not cfg.cb_sm.isChecked() and r1.sm_override == ""
+        win.select_step(0)
+        assert cfg.cb_sm.isChecked() and r0.sm_override == str(alt.resolve())
+        # 実行前の検査も通る
+        assert win._ensure_model([0, 1])
+        # 複製して Excel で開く → 複製が差し替えになる（モデルフォルダ内ならファイル名）
+        win.sequence.folders["model"] = str(d)
+        dup = d / "sm_alt2.csv"
+        opened = []
+        orig_open = folders_mod.open_external
+        folders_mod.open_external = lambda p: opened.append(Path(p)) or True
+        warned, restore = _stub_dialogs(save_path=dup)
+        try:
+            cfg._dup_sm()
+        finally:
+            restore()
+            folders_mod.open_external = orig_open
+        assert dup.exists() and opened == [dup] and r0.sm_override == "sm_alt2.csv"
+        # チェックを外すと差し替えを解除
+        cfg.cb_sm.setChecked(False)
+        assert r0.sm_override == "" and STD_DEGPARAM_SM.name in cfg.lbl_sm_status.text()
     _close(win)

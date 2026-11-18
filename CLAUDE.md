@@ -59,13 +59,15 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
   `Recipe.model_param` は廃止（旧 JSON は標準ファイル＋1番目のステップの mm に移行し警告）、`Recipe.sm_override`（ステップごとの sm 差し替え）。
   Sim 条件に `DBV_NIT`・`DPK_ON`・`GADJ`。①に「パネル設定」欄（検査結果・複製して Excel で開く・再検査・mm の表）。
   `engine.check_bcset`・`check_sm`、`CoreModel.use_sm`、`engine.panel_key`（ファイルの更新時刻込み。変わればモデルを作り直す）。
-  標準の simconf.csv は `DPK_ON=0`・`GADJ=1,1,1` に。selftest **115/115**、松井さんの 11 ケースは差 0 のまま。**次は区切り2（5-3 ③タブ）**。詳細は `doc/progress/261117_フェーズF_進め方と決定事項.md` の「手順5 の結果」
+  標準の simconf.csv は `DPK_ON=0`・`GADJ=1,1,1` に。selftest **115/115**、松井さんの 11 ケースは差 0 のまま。
+  **区切り2（5-3 ③タブ）も済（selftest 118/118）**：表示条件（DBV_NIT・DPK_ON・GADJ）の欄（PQ評価でも表示。Aging 条件の行だけ隠す）、
+  サブモデルの差し替え欄（選んだ時点でレシピへ。モデルフォルダ外は絶対パス）。**次は区切り3（5-4 ⑤の deg1/deg2/deg1×deg2 切替、5-5 の残り）**。
+  **次のセッションの引き継ぎは `doc/progress/261118B_引き継ぎ資料.md`、開始プロンプトは `261118B_次セッション開始プロンプト.md`**詳細は `doc/progress/261117_フェーズF_進め方と決定事項.md` の「手順5 の結果」
 
 - **2026-11-18 フェーズF 手順4 済：bisim は新コアで動く**（`bisim2/source/main.py`＝新コア、旧コアは `bisim2/source/old_core_261117/`）。
   `engine.CoreModel`（`MasterModel` は削除）、deg2 を `RunResult.deg2` → `…_deg2_{c}.csv`／停止チェックポイントに出力。
   パネル設定（bcsetting・sm）は今は標準ファイル `bisim2/source/dbi_conf/` 固定、Sim 条件の新3項目は `engine.CORE_SIM_DEFAULTS`（暫定）。
-  松井さんの 11 ケースをエンジン経由で差 0、selftest **99/99**。
-  **次のセッションは手順5 から：引き継ぎは `doc/progress/261118_引き継ぎ資料.md`、開始プロンプトは `261118_次セッション開始プロンプト.md`**
+  松井さんの 11 ケースをエンジン経由で差 0、selftest **99/99**（手順4 の引き継ぎは `doc/progress/261118_引き継ぎ資料.md`）
 
 - **2026-11-17 フェーズF 進行中。手順・決定事項・松井さんへの確認事項は `doc/progress/261117_フェーズF_進め方と決定事項.md`**。
   新コアの受領物は `receive/Burn_in_sim_core_01/`（`b771914`）。bisim 側で追加したもの（サブモデルの読み込み失敗検出、
