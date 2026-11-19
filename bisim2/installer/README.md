@@ -26,9 +26,9 @@ IP設計者へ **EXE で配布**するための PyInstaller 一式。
 
 | 同梱する | 同梱しない |
 |---|---|
-| `source/main.py` `source/load_com_info.py`（劣化コア＝暫定モデル。**datas で `_internal/source/` に配置**し `engine._load_burn_fn` がファイルパスで直接ロード） | `source/dbi_output/`（CLI の実行結果 96MB） |
-| `source/dbi_conf/*.csv`（degparam_mm / simconf） | `source/dbi_common/input.*` `mov_001.mp4` `mov_ht_001.mp4`（原寸動画） |
-| `source/dbi_input/bcsetting.csv` | `prototype/` `docs/` `.venv/` `build/` `dist/` |
+| `source/main.py` `source/load_com_info.py`（劣化コア＝新コア。**datas で `_internal/source/` に配置**し `engine._load_core` がファイルパスで直接ロード） | `source/dbi_output/`（CLI の実行結果 96MB） |
+| `source/dbi_conf/*.csv`（パネル設定の標準ファイル：bcsetting / degparam_mm / degparam_sm） | `source/dbi_common/input.*` `mov_001.mp4` `mov_ht_001.mp4`（原寸動画） |
+| `source/dbi_input/simconf.csv` | `prototype/` `docs/` `.venv/` `build/` `dist/` `source/old_core_261117/`（旧コア） |
 | サンプル入力 `mov_001_480x270.mp4` / `mov_ht_001_480x270.mp4` / `eval_img*.png` | |
 | `matplotlib` の mpl-data（フォント等） | WebEngine / QML / Qt3D / Multimedia / tkinter（`excludes`） |
 
@@ -39,6 +39,6 @@ IP設計者へ **EXE で配布**するための PyInstaller 一式。
 ## 既知の制限（フェーズE時点）
 
 - アイコン未設定（`bisim.spec` の `icon=` を有効化すれば付く）
-- 劣化コアは暫定モデル（`source/main.py`）。IP設計者の最終コア差し替えはフェーズF（T10）
+- 劣化コアは 2026-11-18 から新コア（松井さん `Burn_in_sim_core_01`）。旧コアは `source/old_core_261117/`（同梱しない）
 - 実ビルド＋クリーンPC実機確認は担当者が別PCで実施中（`docs/EXEビルド手順書.md` §7）
 - 大解像度・CPU並列・DBI/BIP補正・実機比較はスコープ外（`docs/GUI仕様.md` 8章）

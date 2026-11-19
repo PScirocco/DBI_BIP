@@ -127,9 +127,9 @@ dist\BI-sim\
 │   ├─ numpy\ ...
 │   ├─ matplotlib\ mpl-data\ ...
 │   └─ source\                   ← 同梱データ
-│       ├─ main.py  load_com_info.py   ← 劣化コア（暫定モデル）
-│       ├─ dbi_conf\  degparam_mm.csv / simconf.csv
-│       ├─ dbi_input\ bcsetting.csv
+│       ├─ main.py  load_com_info.py   ← 劣化コア（新コア：松井さん Burn_in_sim_core_01）
+│       ├─ dbi_conf\  bcsetting.csv / degparam_mm.csv / degparam_sm.csv（パネル設定の標準ファイル）
+│       ├─ dbi_input\ simconf.csv
 │       └─ dbi_common\ mov_001_480x270.mp4 / mov_ht_001_480x270.mp4 / eval_img*.png
 └─ （初回起動後に以下が自動生成）
     ├─ bisim_output\             ← シミュレーション出力の既定先
@@ -139,7 +139,7 @@ dist\BI-sim\
 
 - **`dist\BI-sim\` フォルダごと**配布する（`BI-sim.exe` 単体では動かない）。
 - 劣化コア（`source/main.py` / `load_com_info.py`）は `_internal\source\` に**データファイルとして**置かれ、
-  `bisim/engine.py::_load_burn_fn` がそのパスから直接ロードする（`import main` は使わない。§8「劣化コアが読めない」）。
+  `bisim/engine.py::_load_core` がそのパスから直接ロードする（`import main` は使わない。§8「劣化コアが読めない」）。
 - 大きい原寸動画（`input.*` / `mov_001.mp4`）と `dbi_output/`（CLI結果 96MB）は**同梱しない**。
 
 ### サイズ目安
@@ -211,10 +211,10 @@ exe = EXE(
 | `Could not find the Qt platform plugin "windows"` | `excludes` を削りすぎ。`dist\BI-sim\_internal\PySide6\plugins\platforms\qwindows.dll` の有無を確認 |
 | `matplotlib ... backend_qtagg` 関連 | `hiddenimports` に既に入れてある。無ければ追加、またはビルド時に `--collect-submodules matplotlib` |
 
-### 劣化コアが読めない（④実行で `EngineError` / 旧: `cannot import name 'temp_update_stat_and_burn_img' from 'main'`）
+### 劣化コアが読めない（④実行で `EngineError` / 旧: `cannot import name ... from 'main'`）
 
 `import main` がありふれた名前ゆえに別モジュールを掴む事故。**現行 spec / engine は対策済み**
-（`source/main.py` を `_internal\source\` に datas 同梱 → `engine._load_burn_fn` がファイルパスで直接ロード。
+（`source/main.py` を `_internal\source\` に datas 同梱 → `engine._load_core` がファイルパスで直接ロード。
 `hiddenimports` から `"main"` は除外）。それでも出る場合:
 
 1. `dist\BI-sim\_internal\source\main.py` と `load_com_info.py` が実在するか
@@ -249,10 +249,11 @@ matplotlib のフォント。対象PCに **Yu Gothic / Meiryo**（Windows 標準
 無い環境向けにフォントを同梱する場合は `bisim.spec` の `datas` に `.ttf` を足し、
 `bisim/ui/theme.py` の `font.family` にその名を追加。
 
-### `temp_update_stat_and_burn_img rtn=-1`（実行時）
+### `burn_in_core rtn=-1` / `Band 抽出に失敗`（実行時）
 
-ビルドの問題ではない。入力画像とヒートマップの解像度不一致、または
-初期ストレス CSV のサイズ不一致。③ステップ設定で入力を見直す。
+ビルドの問題ではない。入力画像とヒートマップの解像度不一致、
+初期ストレス CSV のサイズ不一致、またはパネル設定ファイル（bcsetting・サブモデル）の中身の問題。
+③ステップ設定で入力を、①のパネル設定欄で検査結果を見直す。
 
 ### Unicode パス（`C:\ユーザー\...` / 日本語ユーザー名）
 
@@ -307,7 +308,7 @@ exe = EXE(
 ## 11. 既知の制限（フェーズE時点）
 
 - アプリアイコン未設定（`bisim.spec` の `icon=` を有効化し `installer/bisim.ico` を置けば付く）
-- 劣化コアは暫定モデル（`source/main.py`）。IP設計者の最終コア差し替えはフェーズF（T10）
+- 劣化コアは 2026-11-18 から新コア（松井さん `Burn_in_sim_core_01`。`source/main.py`）。旧コアは `source/old_core_261117/`（EXE には入れない）
 - 実ビルド＋クリーンPC実機確認は、この手順書作成時点で**未実施**（社内NW接続環境で本手順を実施すること）
 - 大解像度対応・CPU並列・DBI/BIP補正・実機比較はスコープ外（`docs/GUI仕様.md` 8章）
 

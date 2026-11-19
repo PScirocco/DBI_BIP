@@ -19,7 +19,7 @@
 評価ステップは Aging しない（静止画は dt=0）ので、次の Aging は評価ステップの累積ストレスをそのまま引き継ぐ。
 
 使い方:
-  python tools/make_rgbcircle_test.py [--out eval_test/rgbcircle] [--radius 70] [--app-dir <bisim.exe のフォルダ>]
+  python tool/make_rgbcircle_test.py [--out eval_test/rgbcircle] [--radius 70] [--app-dir <bisim.exe のフォルダ>]
 
 シーケンスに書くフォルダは、bisim.exe のフォルダ（既定はリポジトリ直下）から見た相対パス
 （例 eval_test/rgbcircle/input）。別PCでは bisim.exe のフォルダの下に eval_test/rgbcircle を
@@ -93,8 +93,8 @@ def hours_label(h: float) -> str:
 
 
 def recipe(name: str, step_type: str, image: str, aging_time: float, init: str) -> dict:
-    from bisim.model import DEFAULT_MODEL, DEFAULT_SIM
-    sim = dict(DEFAULT_SIM)
+    from bisim.model import DEFAULT_SIM
+    sim = {k: (list(v) if isinstance(v, list) else v) for k, v in DEFAULT_SIM.items()}   # DBV_NIT=2000・DPK_ON=0・GADJ=1,1,1
     sim.update(AGING_TIME=float(aging_time), ACCEL_RATIO=ACCEL_RATIO)
     return {
         "recipe_name": name,
@@ -103,13 +103,19 @@ def recipe(name: str, step_type: str, image: str, aging_time: float, init: str) 
         "heatmap": "",
         "heatmap_mode": "fixed",
         "fixed_temp_c": TEMP_C,
-        "model_param": {k: list(v) for k, v in DEFAULT_MODEL.items()},
-        "model_param_csv": "",
         "sim_param": sim,
         "sim_param_csv": "",
         "init_stress": init,
         "init_stress_files": {"r": "", "g": "", "b": ""},
+        "sm_override": "",
     }
+
+
+def panel() -> dict:
+    """パネル設定（フェーズF）：標準ファイル（bcsetting.csv・degparam_sm.csv）と既定の mm。
+    BC設定・モデルのフォルダはシーケンスに書かない → 各PC（EXE）の既定フォルダ（source/dbi_conf）を使う。"""
+    from bisim.model import PanelConfig
+    return PanelConfig().to_dict()
 
 
 def build_sequence(in_dir: Path, out_dir: Path, app_dir_arg=None) -> dict:
@@ -123,10 +129,10 @@ def build_sequence(in_dir: Path, out_dir: Path, app_dir_arg=None) -> dict:
     # 例: "eval_test/rgbcircle/input"。別PCでも bisim.exe のフォルダの下に同じ構成で置けば、
     # パスを書き換えずに開ける（bisim の Sequence.load が APP_DIR 基準で読み替える）。
     # 基準の外に作った場合は絶対パスになる。
-    # BC設定・モデル・Sim のフォルダは書かない → 各PC（EXE）の既定フォルダが使われる
+    # BC設定・モデル・Sim のフォルダは書かない → 各PC（EXE）の既定フォルダが使われる（パネル設定は標準ファイル）
     inp = to_app_relative(in_dir, app_dir_arg)
     folders = {"input_image": inp, "heatmap": inp, "output": to_app_relative(out_dir, app_dir_arg)}
-    return {"sequence_name": SEQ_NAME, "folders": folders, "recipes": recipes}
+    return {"sequence_name": SEQ_NAME, "folders": folders, "panel": panel(), "recipes": recipes}
 
 
 def main() -> None:

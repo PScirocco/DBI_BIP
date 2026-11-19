@@ -1,16 +1,18 @@
 # tool — 作業実行スクリプトと実行条件
 
 bisim（BI-sim）の評価などに使うスクリプト。**EXE には入っていない**ので、Python で実行する。
-（2026-11-12 のフォルダ再編で、旧 `tools/` を `Burn-In_Simv2\tool\` に移した）
+（2026-11-12 のフォルダ再編で、旧 `tools/` を `Burn-In_Simv2\tool\` に移した。2026-11-19 に理論確認テストを新コアの式に作り直した。
+旧コアの式の版は Git のタグ `oldcore-baseline-261117` にある）
 
 | スクリプト | 内容 |
 |---|---|
-| `make_rgbcircle_test.py` | 理論確認テスト（3色円）の入力一式とシーケンス `rgbcircle.seq.json` を作る |
-| `rgbcircle_theory.py` | 理論値を計算し、`--compare` で bisim の出力と比べる |
-| `rgbcircle_excel.py` | 理論値を Excel の数式で計算し、bisim の出力と比べるブックを作る（Excel があれば再計算まで行う） |
+| `make_rgbcircle_test.py` | 理論確認テスト（3色円）の入力一式とシーケンス `rgbcircle.seq.json` を作る（パネル設定は標準ファイル、DBV_NIT=2000・DPK_ON=0） |
+| `rgbcircle_theory.py` | 理論値を計算し、`--compare` で bisim の出力と比べる（stat・deg・deg2・評価画像）。新コアの式とパネル設定ファイルの読み込みを、コアとは別に実装（固定温度・DPK_ON=0 に対応） |
+| `rgbcircle_excel.py` | 理論値を Excel の数式で計算し、bisim の出力と比べるブックを作る（Excel があれば再計算まで行う）。サブモデルの表の補間も数式で計算 |
 | `make_scale_test.py` | ⑤累積時間マップの表示スケール切替を確かめるサンプル `bisim2\eval_test\scaletest\` を作る（白で Aging → 3色円で Aging → 白で評価。期待される見え方の画像つき） |
 | `overlay_rgb_circles.py` | 動画に3色円を重ねる（試作用） |
 | `_seqpaths.py` | 上の3つが共通で使う「フォルダの決め方」 |
+| `phaseF/` | フェーズF（新コアの組み込み）の確認用スクリプト。結合試験（松井さんの動作確認 11 ケースの再現）など。`phaseF/README.md` |
 
 ---
 
@@ -106,3 +108,7 @@ bisim2\.venv\Scripts\python tool\rgbcircle_excel.py  --seq bisim2\eval_test_othe
 
 結果の出力先は、指定しなければシーケンスの横（`theory\` と `理論値_Excel検算.xlsx`）。
 持ち帰ったフォルダに別PCで作った結果が入っていて残したい場合は、`--out` で別の場所を指定する。
+
+パネル設定ファイル（bcsetting・degparam_sm）は、シーケンスの `panel` のファイル名と `folders` の BC設定・モデルのフォルダから決める
+（書かれていなければ bisim の標準フォルダ `bisim2\source\dbi_conf`）。`--bcset`・`--sm` で直接指定もできる。
+別PCの EXE で実行した結果を比べるとき、そのPCでパネル設定を変えていたら、同じファイルを `--bcset`・`--sm` で指定する。

@@ -4,3 +4,5 @@ opencv-python>=4.8
 matplotlib>=3.7
 pytest>=7            # 開発時のみ。pytest 無しでも `python -m bisim.selftest` で確認可
 pyinstaller>=6       # 配布ビルド時のみ（packaging/README.md）。opencv-python-headless でも可
+openpyxl>=3.1         # tool のみ（Excel 検算ブック tool/rgbcircle_excel.py）。bisim 本体・EXE では使わない
+python-pptx>=0.6      # tool のみ（手順6 の結合試験 tool/phaseF/make_integ_seq.py がスライドの画像を取り出す）

@@ -20,7 +20,7 @@
 フォルダは bisim.exe のフォルダ（開発環境ではリポジトリ直下）から見た相対パスで書く（tools/README.md）。
 
 使い方:
-  python tools/make_scale_test.py [--out eval_test/scaletest] [--app-dir <bisim.exe のフォルダ>]
+  python tool/make_scale_test.py [--out eval_test/scaletest] [--app-dir <bisim.exe のフォルダ>]
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ TOOL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOL_DIR))
 sys.path.insert(0, str(REPO))
 from make_rgbcircle_test import (  # noqa: E402
-    H, MOVIE, W, WHITE, recipe, write_movie, write_png,
+    H, MOVIE, W, WHITE, panel, recipe, write_movie, write_png,
 )
 from overlay_rgb_circles import make_pattern  # noqa: E402
 from _seqpaths import APP_DIR_HELP, to_app_relative  # noqa: E402
@@ -56,7 +56,7 @@ def build_sequence(in_dir: Path, out_dir: Path, app_dir_arg=None) -> dict:
         recipe("circles-0h30m", "aging", MOVIE, CIRCLE_AGING_S, "prev"),
         recipe("eval", "eval", WHITE, 0.0, "prev"),
     ]
-    return {"sequence_name": SEQ_NAME, "folders": folders, "recipes": recipes}
+    return {"sequence_name": SEQ_NAME, "folders": folders, "panel": panel(), "recipes": recipes}
 
 
 def expected(seq: dict, in_dir: Path, exp_dir: Path) -> dict:
@@ -67,7 +67,7 @@ def expected(seq: dict, in_dir: Path, exp_dir: Path) -> dict:
     s.folders["input_image"] = s.folders["heatmap"] = str(in_dir)
     with tempfile.TemporaryDirectory() as d:
         s.folders["output"] = d
-        res = engine.run_sequence(sequence=s, model=engine.CoreModel())
+        res = engine.run_sequence(sequence=s, model=engine.CoreModel(bcset_path=s.bcset_path(), sm_path=s.sm_path()))
     st = res[-1].state
     stats = {c: (float(st.channel(c).min()), float(st.channel(c).max())) for c in "rgb"}
     for key in ("zero", "minmax"):

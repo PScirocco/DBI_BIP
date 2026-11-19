@@ -16,7 +16,7 @@ SRC = REPO / "source"
 
 # ---- 同梱データ（実行時に SOURCE_DIR=<_MEIPASS>/source から参照される）----
 datas = [
-    # 劣化コア（暫定モデル）。engine._load_burn_fn がこの main.py をファイルパスで直接ロードする。
+    # 劣化コア（新コア：松井さん Burn_in_sim_core_01）。engine._load_core がこの main.py をファイルパスで直接ロードする。
     (str(SRC / "main.py"), "source"),
     (str(SRC / "load_com_info.py"), "source"),
     (str(SRC / "dbi_conf"), "source/dbi_conf"),          # bcsetting.csv / degparam_mm.csv / degparam_sm.csv（新コア）

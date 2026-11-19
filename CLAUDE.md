@@ -52,7 +52,15 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `material/AMOLED_Image_sticking_prevention_compensation_v01.pptx`（2018, Matsui） | DBI補正アルゴリズムの理論。劣化モデルの根拠 |
 | `material/Platform Concept for DBI & BIP development.pptx`（2026.07, Matsui & Isobe） | シミュレータ＋DBI/BIP評価プラットフォームの構想 |
 
-## 現在の状況（2026-11-18）
+## 現在の状況（2026-11-19）
+
+- **2026-11-19 フェーズF 手順7（後片付け）済 → フェーズF は担当者の別PC（EXE）確認を残して完了**：
+  理論確認テスト（`tool/rgbcircle_theory.py`・`rgbcircle_excel.py`）を新コアの式で作り直し（コアとは別に実装。固定温度・DPK_ON=0）、
+  rgbcircle 全14ステップが理論値と一致・Excel 検算 21 項目 OK・scaletest も理論どおり。`make_rgbcircle_test.py`・`make_scale_test.py` は
+  パネル設定つきの形式に（テストデータ作り直し済み）。GUI仕様・EXEビルド手順書・installer/README・tool/README・実装計画・下の劣化モデルの式を更新、
+  `requirements.txt` に openpyxl・python-pptx（tool 用）。**別PC用チェックリスト `doc/progress/261119_別PC確認チェックリスト.md`（3項目）**。
+  引き継ぎは `doc/progress/261119_引き継ぎ資料.md`、開始プロンプトは `261119_次セッション開始プロンプト.md`。
+  **担当者の判断待ち**：累積 Aging 時間の表示（初期ストレス「なし」でもリセットされない。表示のみ）を直すか
 
 - **2026-11-18 フェーズF 手順6（結合試験）済**（selftest 120/120）：松井さんの動作確認（pptx の 11 ケース）を bisim のシーケンス
   （`bisim2/eval_test/phaseF_integ/`、Git 管理外・README あり。作成 `tool/phaseF/make_integ_seq.py`、比較 `check_integ.py`）で流し、
@@ -266,20 +274,27 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 - 出力（CLI）: `dbi_output/`（`{idx}_out_img.*`, `{idx}_deg_{r,g,b}.csv`, `{idx}_deg2_{r,g,b}.csv`, `{idx}_stat_{r,g,b}.csv`）
 - 旧コアは `source/old_core_261117/`（実行しない）。新コアの式・旧コアとの違いは `doc/progress/261117_フェーズF_進め方と決定事項.md` §0
 
-### 劣化モデル（旧コア。新コアの式への書き直しはフェーズF 手順7）
+### 劣化モデル（新コア。2026-11-18 から。DPK_ON=0 の場合）
 
 ```
-# ストレス累積（＝Iref換算ストレス時間 t_eq の積算）
-stat += Δt · ACCEL_RATIO · lum**N / (K0 · exp(Q / temp))
-# 劣化率（輝度残存率）＝ Δη₁ の基準カーブ
-deg  = exp( -( stat ** (B0 + A·temp) ) )
+# Band：DBV_NIT（ピーク輝度）をはさむ2つの Band（BC1＝上、BC2＝下）の間を t = (DBV_eff−DBV2)/(DBV1−DBV2) で補間
+ipix  = GI2[v]·C2/C1 + (GI1[v] − GI2[v]·C2/C1)·t      # 画素電流（GI＝GI_LUT、C＝CURR_BC。BC1 の単位）
+duty  = duty2 + (duty1 − duty2)·t
+iemit = ipix / duty · GADJ                              # 発光電流
+# ストレス累積（劣化前の電流で貯まる。旧コアは劣化後の輝度だった）
+stat += Δt · duty · ACCEL_RATIO · (iemit·C1)**N / (K0 · exp(Q / T)) · (B0 + A·T) / B0
+# 輝度残存率（基準電流密度。マスターモデル）＝ deg1。出力の deg CSV は β=B0、コアの中は β=B0+A·T
+deg   = exp( -( stat ** β ) )
+# サブモデル：表[電流, 劣化] を (iemit, deg) で補間し、Band 間は発光輝度 DBV/duty で補間 ＝ deg2
+# 画像：floor(255 · ((v/255)**2.2 · deg · deg2)**(1/2.2))   deg はそのフレームを処理する前の stat から
 ```
 
-画素ごと・RGB別に計算。`stat`=累積ストレス、`deg`=輝度残存率（大きいほど劣化少）。
-`lum**N`=(I/Iref)ⁿ（信号レベル換算）, `K0`≈τ₀·Irefⁿ, `exp(Q/temp)`=温度依存(アレニウス),
-`ACCEL_RATIO`=シミュレーション加速, β=`B0+A·temp`。
+画素ごと・RGB別に計算。`stat`=累積ストレス、`deg`(deg1)=輝度残存率（大きいほど劣化少）、`deg2`=表示する電流と劣化で決まる残存率。
+`K0`≈τ₀·Irefⁿ, `exp(Q/T)`=温度依存(アレニウス), T＝温度+273, `ACCEL_RATIO`=シミュレーション加速。
+DPK_ON=1 のときは APL に応じて BC0（DPK 用の Band）との間で補間する。式の独立実装は `tool/rgbcircle_theory.py`、
+詳細と旧コアとの違いは `doc/progress/261117_フェーズF_進め方と決定事項.md` §0。
 本番GUIの UI 表記は `deg`→「輝度残存率(1-劣化率) / lum. residual (1-degradation)」、`stat`→「累積時間 / accumulated time」に変更
-（ファイル名トークンは `deg` / `stat` 維持）。加速込みAging時間 = (フレーム数/fps)×`ACCEL_RATIO`。
+（ファイル名トークンは `deg` / `stat` 維持。deg2 は `deg2`）。加速込みAging時間 = (フレーム数/fps)×`ACCEL_RATIO`。
 `AGING_TIME`[秒]はこの加速込みAging時間の**目標値**（`0`＝無制限）。超過なら打ち切り、不足なら
 動画を周回連結して埋める（`bisim/engine.py::run_recipe`。`source/` 側は無改変・未使用のまま）。
 **注意（粒度）**：1フレームあたりの加速込み時間 ＝ `(1/fps)×ACCEL_RATIO`。既定値（30fps・ACCEL_RATIO=30000）
