@@ -61,14 +61,15 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
   （古い形式の相対パスは APP_DIR から、無くてシーケンスファイルから在ればそちら）。`model.folder_to_file`・`folder_from_file`、
   tool 側は `_seqpaths.resolve_folder`・`to_seq_relative`。テストデータの make スクリプトと eval_test のシーケンス6本も新形式に。
   (2) **累積 Aging 時間**は初期ストレスが前ステップ継承でないステップで 0 から数え直す（`engine.run_sequence`・`SimWorker._progress`）。
-  案B（開いたときに見つからないフォルダを知らせる）は見送り（担当者は案A を選択）
+  案B（開いたときに見つからないフォルダを知らせる）は見送り（担当者は案A を選択）。**画面確認 OK**（`doc/progress/261119B_確認チェックリスト.md`、2件）。
+  フォルダ名は自由（シーケンスファイルのフォルダの下なら相対パスで保存）、出力フォルダは実行時に自動で作られる、と担当者に説明済み
 - **2026-11-19 フェーズF 手順7（後片付け）済**：
   理論確認テスト（`tool/rgbcircle_theory.py`・`rgbcircle_excel.py`）を新コアの式で作り直し（コアとは別に実装。固定温度・DPK_ON=0）、
   rgbcircle 全14ステップが理論値と一致・Excel 検算 21 項目 OK・scaletest も理論どおり。`make_rgbcircle_test.py`・`make_scale_test.py` は
   パネル設定つきの形式に（テストデータ作り直し済み）。GUI仕様・EXEビルド手順書・installer/README・tool/README・実装計画・下の劣化モデルの式を更新、
   `requirements.txt` に openpyxl・python-pptx（tool 用）。**別PC用チェックリスト `doc/progress/261119_別PC確認チェックリスト.md`（3項目）**。
   引き継ぎは `doc/progress/261119_引き継ぎ資料.md`、開始プロンプトは `261119_次セッション開始プロンプト.md`。
-  **担当者の判断待ち**：累積 Aging 時間の表示（初期ストレス「なし」でもリセットされない。表示のみ）を直すか
+  （累積 Aging 時間の表示は同日修正済み。上の項目）
 
 - **2026-11-18 フェーズF 手順6（結合試験）済**（selftest 120/120）：松井さんの動作確認（pptx の 11 ケース）を bisim のシーケンス
   （`bisim2/eval_test/phaseF_integ/`、Git 管理外・README あり。作成 `tool/phaseF/make_integ_seq.py`、比較 `check_integ.py`）で流し、
