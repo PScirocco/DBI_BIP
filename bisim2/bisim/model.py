@@ -6,6 +6,7 @@ Recipe は単体でも保存・再利用できる（仕様 3.3）。
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -405,28 +406,85 @@ class Sequence:
         return panel, warnings
 
     def save(self, path) -> None:
-        _write_json(path, self.to_dict())
+        """シーケンス JSON を書く。フォルダは場所に応じて書き方を変える（2026-11-19 案A）：
+
+        - シーケンスファイルと同じフォルダの下 → シーケンスファイルからの相対パス（例 ``input``・``output/run1``）
+        - BI-sim.exe のフォルダ（``APP_DIR``）の下 → ``<APP>/…``（例 ``<APP>/_internal/source/dbi_conf``）
+        - それ以外 → 絶対パス
+        目印に ``"folders_base": "sequence"`` を書く。シーケンスとデータを1つのフォルダにまとめておけば、
+        フォルダごと別の場所・別PCへ移しても、開くだけで同じ構成になる。
+        """
+        d = self.to_dict()
+        base = Path(path).resolve().parent
+        d["folders"] = {k: folder_to_file(v, base) for k, v in d["folders"].items()}
+        d["folders_base"] = FOLDERS_BASE_SEQ
+        _write_json(path, d)
 
     @classmethod
     def load(cls, path) -> "Sequence":
-        seq = cls.from_dict(_read_json(path))
-        seq.resolve_relative_folders(APP_DIR)
+        d = _read_json(path)
+        seq = cls.from_dict(d)
+        seq.resolve_relative_folders(Path(path).resolve().parent,
+                                     seq_relative=d.get("folders_base") == FOLDERS_BASE_SEQ)
         seq.load_warnings.extend(seq.use_standard_panel_folders_if_missing())
         return seq
 
-    def resolve_relative_folders(self, base) -> None:
-        """``folders`` の相対パスを、``base`` 基準の絶対パスにする（既定は ``APP_DIR``）。
+    def resolve_relative_folders(self, seq_dir, seq_relative: bool = True) -> None:
+        """``folders`` の相対パス・``<APP>/…`` を絶対パスにする。
 
-        ``APP_DIR`` は EXE では bisim.exe のフォルダ、開発時はリポジトリ直下。
-        シーケンスファイルには ``"eval_test/rgbcircle/input"`` のような相対パスも書けるので、
-        別PCでも bisim.exe のフォルダの下に同じ構成でデータを置けば、パスを書き換えずに使える
-        （例：tool/make_rgbcircle_test.py が作るシーケンス）。絶対パスはそのまま。
-        JSON に無いフォルダは、そのPC（EXE）の既定フォルダになる（``from_dict``）。
-        保存時は絶対パスで書き出す。
+        - ``<APP>/…`` … BI-sim.exe のフォルダ（``APP_DIR``。開発時は ``bisim2/``）から
+        - 相対パス：``seq_relative``（``folders_base`` が ``sequence``。2026-11-19 以降に保存したもの）なら
+          シーケンスファイルのフォルダ ``seq_dir`` から。それより前の形式（tool が作ったシーケンスなど）は
+          ``APP_DIR`` から探し、無くて ``seq_dir`` からなら見つかる場合はそちら
+        - 絶対パスはそのまま。JSON に無いフォルダは、そのPC（EXE）の既定フォルダ（``from_dict``）
         """
         for k, v in list(self.folders.items()):
-            if v and not Path(v).is_absolute():
-                self.folders[k] = str((Path(base) / v).resolve())
+            self.folders[k] = folder_from_file(v, Path(seq_dir), seq_relative)
+
+
+FOLDERS_BASE_SEQ = "sequence"
+APP_TOKEN = "<APP>"
+
+
+def _under(p: Path, base: Path):
+    try:
+        return p.relative_to(base)
+    except ValueError:
+        return None
+
+
+def folder_to_file(v: str, seq_dir: Path) -> str:
+    """フォルダの絶対パス → シーケンス JSON に書く形（:meth:`Sequence.save`）。"""
+    if not v:
+        return v
+    p = Path(v)
+    if not p.is_absolute():
+        return v
+    p = Path(os.path.normpath(p))
+    rel = _under(p, Path(os.path.normpath(seq_dir)))
+    if rel is not None:
+        return rel.as_posix() if rel.parts else "."
+    rel = _under(p, Path(os.path.normpath(APP_DIR)))
+    if rel is not None:
+        return f"{APP_TOKEN}/{rel.as_posix()}" if rel.parts else APP_TOKEN
+    return str(p)
+
+
+def folder_from_file(v: str, seq_dir: Path, seq_relative: bool) -> str:
+    """シーケンス JSON に書かれたフォルダ → 絶対パス（:meth:`Sequence.load`）。"""
+    if not v:
+        return v
+    if v == APP_TOKEN or v.startswith(APP_TOKEN + "/"):
+        return os.path.normpath(Path(APP_DIR) / v[len(APP_TOKEN):].lstrip("/"))
+    if Path(v).is_absolute():
+        return v
+    by_seq = os.path.normpath(seq_dir / v)
+    if seq_relative:
+        return by_seq
+    by_app = os.path.normpath(Path(APP_DIR) / v)       # 2026-11-19 より前の形式：BI-sim.exe のフォルダから
+    if not Path(by_app).exists() and Path(by_seq).exists():
+        return by_seq
+    return by_app
 
 
 # --------------------------------------------------------------------------- #

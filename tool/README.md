@@ -51,21 +51,21 @@ Burn-In_Simv2\
 - **注意：`build_exe.ps1` はビルドのたびに `dist\BI-sim\` を丸ごと消して作り直す。**
   EXE 用に置いたテストデータと結果も消えるので、ビルド後にコピーし直す（結果は先に退避しておく）
 
-### 3. シーケンスに書くフォルダ（相対パス）の基準
+### 3. シーケンスに書くフォルダ（相対パス）の基準（2026-11-19 改定）
 
-- シーケンス（`*.seq.json`）の `folders` に書く**相対パスは、BI-sim.exe のフォルダから見たパス**
-  （開発環境の `python -m bisim` では `bisim2\` から見たパス）。絶対パスもそのまま使える
-- 例：`"input_image": "eval_test/rgbcircle/input"`
-  - 開発環境 → `Burn-In_Simv2\bisim2\eval_test\rgbcircle\input`
-  - EXE → `Burn-In_Simv2\bisim2\dist\BI-sim\eval_test\rgbcircle\input`
-- つまり、**基準フォルダの下に `eval_test\rgbcircle\` を同じ構成で置けば、パスを書き換えずに開ける**
-- シーケンスに書かれていないフォルダ（BC設定・モデル・Sim）は、その bisim の既定フォルダになる
-- bisim の画面（①フォルダ設定）で変えて保存すると、そのシーケンスは絶対パスで保存される
+- シーケンス（`*.seq.json`）に `"folders_base": "sequence"` があれば、`folders` の**相対パスはシーケンスファイルのフォルダから見たパス**
+  - 例：`"input_image": "input"` → `<シーケンスファイルのフォルダ>\input`
+  - **シーケンスとデータを1つのフォルダにまとめておけば、フォルダごとどこへ・別PCへコピーしても、開くだけで動く**
+    （tool が作る `eval_test\rgbcircle\`・`scaletest\`・`phaseF_integ\` はこの形）
+- `<APP>/…` は BI-sim.exe のフォルダ（開発環境では `bisim2\`）から見たパス（例：EXE の標準フォルダ `<APP>/_internal/source/dbi_conf`）
+- bisim の画面で保存すると：シーケンスファイルの下のフォルダは相対パス、BI-sim.exe のフォルダの下は `<APP>/…`、それ以外は絶対パス
+- `folders_base` の無い古いシーケンスの相対パスは、BI-sim.exe のフォルダから見たパス（見つからず、シーケンスファイルから見て在ればそちら）
+- シーケンスに書かれていないフォルダ（BC設定・モデル・Sim）は、その bisim の既定フォルダ（標準のパネル設定ファイル）になる
 
 ### 4. tool がフォルダを決める順番（`_seqpaths.py`）
 
 1. コマンドで直接指定したフォルダ（`--input-dir` / `--bisim-out`）
-2. シーケンスに書かれたフォルダ（相対パスは `--app-dir` が基準。指定しなければ `bisim2\`）
+2. シーケンスに書かれたフォルダ（上の 3 と同じ規則。`<APP>/…` と古い形式の相対パスは `--app-dir` が基準。指定しなければ `bisim2\`）
 3. 2 が見つからなければ、シーケンスファイルの横の `input` / `output`
    （別PCからシーケンスと結果をフォルダごと持ち帰った場合など）
 

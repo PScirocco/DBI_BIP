@@ -15,7 +15,7 @@ r"""手順6（結合試験）の準備（2026-11-18）: 松井さんの動作確
 
 ケース3 はケース1 の stat から分かれる（ケース2 からではない）。シーケンスは一本道なので、
 ケース1 の Aging をもう一度実行してから（同じ計算なので同じ stat）ケース3 を「前ステップ継承」で流す。
-→ ステップは 12 個。フォルダは bisim2 基準の相対パス（別PCの EXE でも <exe>\eval_test\phaseF_integ に置けば動く）。
+→ ステップは 12 個。フォルダはシーケンスファイルから見た相対パス（このフォルダごと、どこへ・別PCへコピーしても開ける）。
 
 実行（Burn-In_Simv2 直下）:
   bisim2\.venv\Scripts\python -I tool\phaseF\make_integ_seq.py bisim2 receive\Burn_in_sim_core_01 ^
@@ -81,8 +81,8 @@ for si, slide in enumerate(Presentation(str(pptx_path)).slides, 1):
 print(f"スライドの結果画像: {len(pmap)} 枚 → ケース {sorted(p['case'] for p in pmap)}")
 
 # ---- シーケンス ----
-folders = {"input_image": f"{REL}/input", "heatmap": f"{REL}/input", "bcset": f"{REL}/conf",
-           "model": f"{REL}/conf", "simconf": f"{REL}/simconf"}
+# フォルダはシーケンスファイル（phaseF_integ/）から見た相対パス（2026-11-19〜。"folders_base": "sequence"）
+folders = {"input_image": "input", "heatmap": "input", "bcset": "conf", "model": "conf", "simconf": "simconf"}
 panel = PanelConfig(bcsetting="bcsetting.csv", degparam_sm="degparam_sm.csv",
                     model_param=paramio.read_model_csv(root / "conf/degparam_mm.csv"),
                     model_param_csv="degparam_mm.csv")
@@ -97,10 +97,10 @@ def recipe(name, img, ht, sim_csv, init, step_type, aging_time=None):
 
 
 def save(seq_name, recipes, steps_info):
-    seq = Sequence(sequence_name=seq_name, recipes=recipes, panel=panel,
-                   folders=dict(folders, output=f"{REL}/output/{seq_name}"))
+    seq = Sequence(sequence_name=seq_name, recipes=recipes, panel=panel)
     d = seq.to_dict()
-    d["folders"] = dict(folders, output=f"{REL}/output/{seq_name}")     # 相対パスのまま保存
+    d["folders"] = dict(folders, output=f"output/{seq_name}")           # 相対パスのまま保存
+    d["folders_base"] = "sequence"
     (root / f"{seq_name}.seq.json").write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
     (root / f"{seq_name}.steps.json").write_text(json.dumps(steps_info, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"{seq_name}.seq.json: {len(recipes)} ステップ")

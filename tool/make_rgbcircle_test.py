@@ -19,11 +19,11 @@
 評価ステップは Aging しない（静止画は dt=0）ので、次の Aging は評価ステップの累積ストレスをそのまま引き継ぐ。
 
 使い方:
-  python tool/make_rgbcircle_test.py [--out eval_test/rgbcircle] [--radius 70] [--app-dir <bisim.exe のフォルダ>]
+  python tool/make_rgbcircle_test.py [--out eval_test/rgbcircle] [--radius 70]
 
-シーケンスに書くフォルダは、bisim.exe のフォルダ（既定はリポジトリ直下）から見た相対パス
-（例 eval_test/rgbcircle/input）。別PCでは bisim.exe のフォルダの下に eval_test/rgbcircle を
-コピーすれば、そのまま開いて実行できる。
+シーケンスに書くフォルダは、シーケンスファイルから見た相対パス（input / output。"folders_base": "sequence"）。
+出力先フォルダごと、どこへ・別PCへコピーしても、そのまま開いて実行できる（2026-11-19〜）。
+BC設定・モデル・Sim のフォルダは書かない（各PC・EXE の既定フォルダ＝標準のパネル設定ファイル）。
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ TOOL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOL_DIR))
 sys.path.insert(0, str(REPO))
 from overlay_rgb_circles import make_pattern  # noqa: E402
-from _seqpaths import APP_DIR_HELP, to_app_relative  # noqa: E402
+from _seqpaths import to_seq_relative  # noqa: E402
 
 W, H = 240, 512                  # パネルサイズ（横×縦）
 FPS = 30.0
@@ -118,28 +118,25 @@ def panel() -> dict:
     return PanelConfig().to_dict()
 
 
-def build_sequence(in_dir: Path, out_dir: Path, app_dir_arg=None) -> dict:
+def build_sequence(in_dir: Path, out_dir: Path) -> dict:
     recipes, prev_h = [], 0
     for i, h in enumerate(CUM_HOURS):
         recipes.append(recipe(f"aging-{hours_label(h)}", "aging", MOVIE, (h - prev_h) * 3600.0,
                               "none" if i == 0 else "prev"))
         recipes.append(recipe(f"eval-{hours_label(h)}", "eval", WHITE, 0.0, "prev"))
         prev_h = h
-    # フォルダは bisim.exe のフォルダ（開発環境ではリポジトリ直下）から見た相対パスで書く。
-    # 例: "eval_test/rgbcircle/input"。別PCでも bisim.exe のフォルダの下に同じ構成で置けば、
-    # パスを書き換えずに開ける（bisim の Sequence.load が APP_DIR 基準で読み替える）。
-    # 基準の外に作った場合は絶対パスになる。
-    # BC設定・モデル・Sim のフォルダは書かない → 各PC（EXE）の既定フォルダが使われる（パネル設定は標準ファイル）
-    inp = to_app_relative(in_dir, app_dir_arg)
-    folders = {"input_image": inp, "heatmap": inp, "output": to_app_relative(out_dir, app_dir_arg)}
-    return {"sequence_name": SEQ_NAME, "folders": folders, "panel": panel(), "recipes": recipes}
+    # フォルダはシーケンスファイル（in_dir・out_dir の親）から見た相対パスで書く（2026-11-19〜。folders_base）。
+    # フォルダごと別の場所・別PCへ移しても、そのまま開ける。BC設定・モデル・Sim は書かない（各PC の既定＝標準ファイル）
+    seq_dir = Path(in_dir).parent
+    inp = to_seq_relative(in_dir, seq_dir)
+    folders = {"input_image": inp, "heatmap": inp, "output": to_seq_relative(out_dir, seq_dir)}
+    return {"sequence_name": SEQ_NAME, "folders_base": "sequence", "folders": folders, "panel": panel(), "recipes": recipes}
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=REPO / "eval_test" / "rgbcircle")
     ap.add_argument("--radius", type=int, default=70, help="円の半径 [px]（既定 70）")
-    ap.add_argument("--app-dir", type=Path, help=APP_DIR_HELP)
     a = ap.parse_args()
 
     base = a.out.resolve()
@@ -153,7 +150,7 @@ def main() -> None:
     write_png(in_dir / WHITE, np.full((H, W, 3), 255, np.uint8))
     write_movie(in_dir / MOVIE, pattern)
 
-    seq = build_sequence(in_dir, out_dir, a.app_dir)
+    seq = build_sequence(in_dir, out_dir)
     (base / f"{SEQ_NAME}.seq.json").write_text(
         json.dumps(seq, ensure_ascii=False, indent=2), encoding="utf-8")
 

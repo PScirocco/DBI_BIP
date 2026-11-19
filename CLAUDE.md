@@ -55,7 +55,13 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 ## 現在の状況（2026-11-19）
 
 - **2026-11-19 フェーズF 完了**：別PC（EXE）確認 OK（11 ケース・理論確認・Excel とも OK、CSV は開発PCとバイト単位で同一。`doc/progress/261119_別PC確認チェックリスト.md`）。
-  **担当者の判断待ち**：シーケンスのフォルダ設定の改善（案A：相対パスの基準をシーケンスファイルの場所に＋保存も相対、案B：開いたときに見つからないフォルダを知らせる）
+  同日、担当者の指示で2件を修正（selftest 123/123）：
+  (1) **シーケンスのフォルダは、シーケンスファイルからの相対パスで保存**（案A）：`Sequence.save` がシーケンスファイルの下は相対、
+  APP_DIR の下は `<APP>/…`、それ以外は絶対パスで書き `"folders_base": "sequence"` を付ける。`Sequence.load` はそれを読み替え
+  （古い形式の相対パスは APP_DIR から、無くてシーケンスファイルから在ればそちら）。`model.folder_to_file`・`folder_from_file`、
+  tool 側は `_seqpaths.resolve_folder`・`to_seq_relative`。テストデータの make スクリプトと eval_test のシーケンス6本も新形式に。
+  (2) **累積 Aging 時間**は初期ストレスが前ステップ継承でないステップで 0 から数え直す（`engine.run_sequence`・`SimWorker._progress`）。
+  案B（開いたときに見つからないフォルダを知らせる）は見送り（担当者は案A を選択）
 - **2026-11-19 フェーズF 手順7（後片付け）済**：
   理論確認テスト（`tool/rgbcircle_theory.py`・`rgbcircle_excel.py`）を新コアの式で作り直し（コアとは別に実装。固定温度・DPK_ON=0）、
   rgbcircle 全14ステップが理論値と一致・Excel 検算 21 項目 OK・scaletest も理論どおり。`make_rgbcircle_test.py`・`make_scale_test.py` は

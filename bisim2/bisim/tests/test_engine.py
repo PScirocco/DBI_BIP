@@ -358,6 +358,24 @@ def test_run_sequence_chains_prev():
         assert float(np.nanmax(results[1].state.r)) > 0.0
 
 
+def test_cumulative_aging_restarts_when_not_inherited():
+    """累積 Aging 時間は、初期ストレスが前ステップ継承でないステップで数え直す（2026-11-19）。"""
+    with tempfile.TemporaryDirectory() as d:
+        seq = Sequence(sequence_name="SEQ", folders=_folders(d))
+        seq.recipes = [
+            Recipe(recipe_name="a1", input_image=_MOVIE, heatmap=_MOVIE_HT),
+            Recipe(recipe_name="a2", input_image=_MOVIE, heatmap=_MOVIE_HT, init_stress="prev"),
+            Recipe(recipe_name="a3", input_image=_MOVIE, heatmap=_MOVIE_HT, init_stress="none"),
+            Recipe(recipe_name="a4", input_image=_MOVIE, heatmap=_MOVIE_HT, init_stress="prev"),
+        ]
+        r = engine.run_sequence(sequence=seq, model=_model(), max_frames=2)
+        a = r[0].aging_seconds
+        assert a > 0
+        assert r[1].cumulative_aging_seconds == 2 * a          # 継承 → 足していく
+        assert r[2].cumulative_aging_seconds == a              # なし → 数え直し
+        assert r[3].cumulative_aging_seconds == 2 * a
+
+
 def test_format_aging():
     assert engine.format_aging(3600) == "01h 00m 00s"
     assert engine.format_aging(0) == "00h 00m 00s"

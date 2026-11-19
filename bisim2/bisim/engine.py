@@ -1106,6 +1106,10 @@ def run_sequence(
             progress_cb=_pcb, log=log, max_frames=max_frames,
             model_param=sequence.panel.model_param, sm_path=sequence.sm_path(idx),
         )
+        # 累積 Aging 時間は「今のストレスの履歴」の時間。初期ストレスが前ステップ継承でなければ
+        # （なし・ファイル指定）このステップから数え直す（2026-11-19。以前はシーケンスの最初からの合計だった）
+        if recipe.init_stress != "prev":
+            cumulative = 0.0
         cumulative += res.aging_seconds
         res.cumulative_aging_seconds = cumulative
         results.append(res)

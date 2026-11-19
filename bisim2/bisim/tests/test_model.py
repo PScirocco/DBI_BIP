@@ -90,6 +90,59 @@ def test_sequence_relative_folders_resolve_against_app_dir():
         assert s.folders["model"] == str(DEFAULT_FOLDERS["model"])  # 書かれていない欄はそのPCの既定
 
 
+def test_sequence_folders_saved_relative_to_sequence_file():
+    """保存：シーケンスファイルの下のフォルダは相対パス、APP_DIR の下は <APP>/…、それ以外は絶対パス。
+    フォルダごと別の場所へ移しても、開くと移した先を指す（2026-11-19 案A）。"""
+    import json
+    import shutil
+    from bisim.paths import APP_DIR
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as other:
+        src = Path(d).resolve() / "work"
+        (src / "input").mkdir(parents=True)
+        s = Sequence(sequence_name="t")
+        s.folders["input_image"] = str(src / "input")
+        s.folders["heatmap"] = str(src)
+        s.folders["output"] = str(src / "output" / "run1")             # まだ無いフォルダでもよい
+        s.folders["model"] = str(APP_DIR / "source" / "dbi_conf")
+        s.folders["simconf"] = str(Path(other).resolve())
+        s.save(src / "t.seq.json")
+        raw = json.loads((src / "t.seq.json").read_text(encoding="utf-8"))
+        assert raw["folders_base"] == "sequence"
+        assert raw["folders"]["input_image"] == "input"
+        assert raw["folders"]["heatmap"] == "."
+        assert raw["folders"]["output"] == "output/run1"
+        assert raw["folders"]["model"] == "<APP>/source/dbi_conf"
+        assert raw["folders"]["simconf"] == str(Path(other).resolve())
+        # 同じ場所で開き直すと元どおり
+        s2 = Sequence.load(src / "t.seq.json")
+        for k in ("input_image", "heatmap", "output", "model", "simconf"):
+            assert Path(s2.folders[k]) == Path(s.folders[k]), k
+        # フォルダごと移す → 移した先を指す
+        dst = Path(d).resolve() / "moved"
+        shutil.copytree(src, dst)
+        s3 = Sequence.load(dst / "t.seq.json")
+        assert Path(s3.folders["input_image"]) == dst / "input"
+        assert Path(s3.folders["output"]) == dst / "output" / "run1"
+        assert Path(s3.folders["model"]) == APP_DIR / "source" / "dbi_conf"
+
+
+def test_sequence_old_relative_folders_fall_back_to_sequence_dir():
+    """2026-11-19 より前の形式（folders_base なし）の相対パスは APP_DIR から。
+    APP_DIR から見て無く、シーケンスファイルから見て在れば、そちらを使う。"""
+    import json
+    from bisim.paths import APP_DIR
+    with tempfile.TemporaryDirectory() as d:
+        base = Path(d).resolve()
+        (base / "only_here_input").mkdir()
+        (base / "t.seq.json").write_text(json.dumps({
+            "sequence_name": "t",
+            "folders": {"input_image": "only_here_input", "output": "eval_test/xyz_not_exist"},
+            "recipes": []}), encoding="utf-8")
+        s = Sequence.load(base / "t.seq.json")
+        assert Path(s.folders["input_image"]) == base / "only_here_input"
+        assert Path(s.folders["output"]) == APP_DIR / "eval_test" / "xyz_not_exist"
+
+
 def test_recipe_from_old_json_without_step_type():
     """種別の欄が無い旧シーケンス JSON は拡張子から決める（従来と同じ動作）。"""
     assert Recipe.from_dict({"recipe_name": "a", "input_image": "x.mp4"}).step_type == "aging"

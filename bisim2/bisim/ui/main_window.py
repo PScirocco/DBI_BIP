@@ -78,6 +78,8 @@ class SimWorker(QThread):
             r = self.sequence.recipes[idx]
             self.sig_step.emit(pos, n, r.recipe_name)
             self._dt_accel = self._seconds_per_frame(r)
+            if r.init_stress != "prev":
+                self._cum_done = 0.0                 # 前ステップを継承しない → 累積は数え直し（engine.run_sequence と同じ）
         if fd == ft or fd % 10 == 0 or fd == 1:
             from bisim.ui.widgets import bgr_to_qimage
             qimg = bgr_to_qimage(preview_bgr) if preview_bgr is not None else None

@@ -1,8 +1,9 @@
 """tools 共通：シーケンスファイル（*.seq.json）からフォルダを決める。
 
-シーケンスの ``folders`` に書く相対パスは、**bisim.exe のフォルダから見たパス**
-（開発環境ではリポジトリ直下から見たパス）。bisim の ``Sequence.load`` と同じ規則。
-例：``"eval_test/rgbcircle/input"`` → ``<bisim.exe のフォルダ>/eval_test/rgbcircle/input``
+シーケンスの ``folders`` の書き方は bisim の ``Sequence.load`` と同じ規則（2026-11-19 改定）:
+- ``"folders_base": "sequence"`` があれば、相対パスは**シーケンスファイルのフォルダから見たパス**（例 ``"input"``）
+- ``<APP>/…`` は bisim.exe のフォルダ（開発環境では bisim2）から見たパス
+- それより前の形式の相対パスは bisim.exe のフォルダから見たパス（例 ``"eval_test/rgbcircle/input"``）
 
 tools のスクリプトでは、相対パスの基準（＝bisim.exe のフォルダ）を ``--app-dir`` で指定できる。
 指定しなければリポジトリ直下（開発環境の bisim と同じ）。
@@ -47,9 +48,16 @@ def resolve_folder(seq: dict, seq_path: Path, key: str, fallback: str, override=
     written = (seq.get("folders") or {}).get(key, "")
     cand = None
     if written:
-        cand = Path(written)
-        if not cand.is_absolute():
-            cand = app_dir(app_dir_arg) / cand
+        if written == "<APP>" or written.startswith("<APP>/"):        # BI-sim.exe のフォルダから（2026-11-19〜）
+            cand = app_dir(app_dir_arg) / written[len("<APP>"):].lstrip("/")
+        elif Path(written).is_absolute():
+            cand = Path(written)
+        elif seq.get("folders_base") == "sequence":                   # シーケンスファイルから（2026-11-19〜）
+            cand = Path(seq_path).parent / written
+        else:                                                         # それより前の形式：BI-sim.exe のフォルダから
+            cand = app_dir(app_dir_arg) / written
+            if not cand.exists() and (Path(seq_path).parent / written).exists():
+                cand = Path(seq_path).parent / written
         if cand.exists():
             return cand.resolve()
     fb = Path(seq_path).parent / fallback
@@ -65,6 +73,16 @@ def to_app_relative(p: Path, app_dir_arg=None) -> str:
     """シーケンスに書く形：基準フォルダの下なら相対パス（/ 区切り）、外なら絶対パス。"""
     try:
         return Path(p).resolve().relative_to(app_dir(app_dir_arg)).as_posix()
+    except ValueError:
+        return str(Path(p).resolve())
+
+
+def to_seq_relative(p: Path, seq_dir: Path) -> str:
+    """シーケンスに書く形（2026-11-19〜。``folders_base: "sequence"`` と一緒に使う）：
+    シーケンスファイルのフォルダの下なら相対パス（/ 区切り）、外なら絶対パス。"""
+    try:
+        rel = Path(p).resolve().relative_to(Path(seq_dir).resolve())
+        return rel.as_posix() if rel.parts else "."
     except ValueError:
         return str(Path(p).resolve())
 

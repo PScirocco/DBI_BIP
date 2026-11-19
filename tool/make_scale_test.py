@@ -17,10 +17,10 @@
   03 eval           PQ評価 全面白            前ステップ継承
   共通: ACCEL_RATIO=3600、固定温度 25℃、モデルパラメータ既定値
 
-フォルダは bisim.exe のフォルダ（開発環境ではリポジトリ直下）から見た相対パスで書く（tools/README.md）。
+フォルダはシーケンスファイルから見た相対パスで書く（2026-11-19〜。フォルダごとどこへコピーしても開ける）。
 
 使い方:
-  python tool/make_scale_test.py [--out eval_test/scaletest] [--app-dir <bisim.exe のフォルダ>]
+  python tool/make_scale_test.py [--out eval_test/scaletest]
 """
 from __future__ import annotations
 
@@ -41,22 +41,25 @@ from make_rgbcircle_test import (  # noqa: E402
     H, MOVIE, W, WHITE, panel, recipe, write_movie, write_png,
 )
 from overlay_rgb_circles import make_pattern  # noqa: E402
-from _seqpaths import APP_DIR_HELP, to_app_relative  # noqa: E402
+from _seqpaths import to_seq_relative  # noqa: E402
 
 SEQ_NAME = "scaletest"
 WHITE_AGING_S = 7200.0      # 白で 2時間
 CIRCLE_AGING_S = 1800.0     # 3色円で 30分
 
 
-def build_sequence(in_dir: Path, out_dir: Path, app_dir_arg=None) -> dict:
-    inp = to_app_relative(in_dir, app_dir_arg)
-    folders = {"input_image": inp, "heatmap": inp, "output": to_app_relative(out_dir, app_dir_arg)}
+def build_sequence(in_dir: Path, out_dir: Path) -> dict:
+    # フォルダはシーケンスファイル（in_dir・out_dir の親）から見た相対パスで書く（2026-11-19〜。folders_base）。
+    # フォルダごと別の場所・別PCへ移しても、そのまま開ける。BC設定・モデル・Sim は書かない（各PC の既定＝標準ファイル）
+    seq_dir = Path(in_dir).parent
+    inp = to_seq_relative(in_dir, seq_dir)
+    folders = {"input_image": inp, "heatmap": inp, "output": to_seq_relative(out_dir, seq_dir)}
     recipes = [
         recipe("white-2h", "aging", WHITE, WHITE_AGING_S, "none"),
         recipe("circles-0h30m", "aging", MOVIE, CIRCLE_AGING_S, "prev"),
         recipe("eval", "eval", WHITE, 0.0, "prev"),
     ]
-    return {"sequence_name": SEQ_NAME, "folders": folders, "panel": panel(), "recipes": recipes}
+    return {"sequence_name": SEQ_NAME, "folders_base": "sequence", "folders": folders, "panel": panel(), "recipes": recipes}
 
 
 def expected(seq: dict, in_dir: Path, exp_dir: Path) -> dict:
@@ -85,7 +88,6 @@ def expected(seq: dict, in_dir: Path, exp_dir: Path) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=REPO / "eval_test" / "scaletest")
-    ap.add_argument("--app-dir", type=Path, help=APP_DIR_HELP)
     a = ap.parse_args()
 
     base = a.out.resolve()
@@ -96,7 +98,7 @@ def main() -> None:
     write_png(in_dir / WHITE, np.full((H, W, 3), 255, np.uint8))
     write_movie(in_dir / MOVIE, pattern)
 
-    seq = build_sequence(in_dir, out_dir, a.app_dir)
+    seq = build_sequence(in_dir, out_dir)
     (base / f"{SEQ_NAME}.seq.json").write_text(json.dumps(seq, ensure_ascii=False, indent=2), encoding="utf-8")
 
     stats = expected(seq, in_dir, exp_dir)
