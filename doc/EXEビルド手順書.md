@@ -116,31 +116,25 @@ tar -a -c -f dist\BI-sim.zip -C dist BI-sim
 
 ---
 
-## 5. 生成物の構成（onedir）
+## 5. 生成物の構成（2026-11-25 から onefile）
 
 ```
 dist\BI-sim\
-├─ BI-sim.exe                    ← これを実行
-├─ _internal\                    ← 依存一式（PyInstaller 6.x）
-│   ├─ PySide6\ ...
-│   ├─ cv2\  (opencv_videoio_ffmpeg*.dll を含む)
-│   ├─ numpy\ ...
-│   ├─ matplotlib\ mpl-data\ ...
-│   └─ source\                   ← 同梱データ
-│       ├─ main.py  load_com_info.py   ← 劣化コア（新コア：松井さん Burn_in_sim_core_01）
-│       ├─ dbi_conf\  bcsetting.csv / degparam_mm.csv / degparam_sm.csv（パネル設定の標準ファイル）
-│       ├─ dbi_input\ simconf.csv
-│       └─ dbi_common\ mov_001_480x270.mp4 / mov_ht_001_480x270.mp4 / eval_img*.png
+├─ BI-sim.exe                    ← これだけ（1つの EXE。依存一式と同梱データを中に持つ。_internal フォルダは無い）
 └─ （初回起動後に以下が自動生成）
     ├─ bisim_output\             ← シミュレーション出力の既定先
     ├─ _log_BISim\BISim_YYMMDD-HHMMSS.log   （起動ごとに新規。上限超過時は _02.log …）
     └─ bisim_app.json            ← 言語・ログ容量設定
 ```
 
-- **`dist\BI-sim\` フォルダごと**配布する（`BI-sim.exe` 単体では動かない）。
-- 劣化コア（`source/main.py` / `load_com_info.py`）は `_internal\source\` に**データファイルとして**置かれ、
+- **起動のたびに**、中身（PySide6・numpy・OpenCV・matplotlib・劣化コアと同梱データ `source\…`）を
+  一時フォルダ `%TEMP%\_MEIxxxxxx\` に展開してから動く。終了すると一時フォルダは消える（異常終了すると残ることがある）
+  - 起動と終了は onedir より遅い（PC によって数秒〜数十秒）。**計算の速さは onedir と同じ**
+  - 動いている間は `%TEMP%` に数百 MB の空きが要る
+- 劣化コア（`source/main.py` / `load_com_info.py`）は展開先の `source\` に**データファイルとして**置かれ、
   `bisim/engine.py::_load_core` がそのパスから直接ロードする（`import main` は使わない。§8「劣化コアが読めない」）。
 - 大きい原寸動画（`input.*` / `mov_001.mp4`）と `dbi_output/`（CLI結果 96MB）は**同梱しない**。
+- onedir（`_internal` フォルダ付き。～11/24 の形）に戻す方法は `installer/bisim.spec` の末尾のコメント。
 
 ### サイズ目安
 
@@ -158,7 +152,7 @@ dist\BI-sim\
 ```
 
 1. 5タブのウィンドウが開く
-2. ②実行ステップ「追加」→ ③で入力画像「参照」→ `_internal\source\dbi_common\mov_001_480x270.mp4`、
+2. ②実行ステップ「追加」→ ③で入力画像「参照」→ ①の既定の入力フォルダ（onefile では起動中の展開先 `%TEMP%\_MEIxxxxxx\source\dbi_common\`）の `mov_001_480x270.mp4`、
    ヒートマップ → `mov_ht_001_480x270.mp4` →「この設定を適用」
 3. ④実行「全ステップ実行」→ フレームが進み、劣化後プレビューが出る
 4. まずシーケンスを保存（メニュー「シーケンスに名前を付けて保存…」）。
@@ -193,6 +187,9 @@ Python も開発ツールも無いPC（社内の別PC / まっさらな VM）で
 ---
 
 ## 8. トラブルシューティング
+
+> **2026-11-25 から onefile**：以下の `dist\BI-sim\_internal\…` は、BI-sim の起動中にできる展開先
+> `%TEMP%\_MEIxxxxxx\…`（終了すると消える）と読み替える。中身の構成は同じ。
 
 ### ビルドは通るが起動しない / すぐ落ちる
 
@@ -268,7 +265,7 @@ matplotlib のフォント。対象PCに **Yu Gothic / Meiryo**（Windows 標準
 
 ---
 
-## 9. onefile（単一 .exe）で作りたい場合
+## 9. onefile（単一 .exe）で作りたい場合（2026-11-25 から既定。以下は当時の手順の記録）
 
 `installer\bisim.spec` を次のように変更:
 
@@ -292,7 +289,7 @@ exe = EXE(
 ```
 
 - 生成物は `dist\BI-sim.exe` の1ファイル。
-- 初回起動時に自己展開するため **初回だけ 5〜15 秒**待ちがある。
+- **起動のたびに**自己展開するため、毎回 数秒〜数十秒の待ちがある（2026-11-25 訂正：以前は「初回だけ」と書いていたが誤り）。
 - 出力・ログは exe と同じフォルダに作られる（`app_dir()` は exe の場所を返す）。
 - 単一ファイルが要件でなければ **onedir 推奨**（起動が速い・AV 誤検知が少ない・差分更新しやすい）。
 

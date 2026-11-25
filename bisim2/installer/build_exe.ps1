@@ -6,7 +6,7 @@
 
     - リポジトリ直下の .venv を使う（無ければ作成を促す）
     - pyinstaller が無ければ pip で入れる（社内ミラー経由）
-    - dist\BI-sim\BI-sim.exe を生成（onedir）
+    - dist\BI-sim\BI-sim.exe を生成（2026-11-25 から onefile：1つの EXE、_internal フォルダは無い）
     - 最後に dist\BI-sim を zip 化（失敗してもフォルダは完成しているので致命的ではない）
     - さらにインストーラ dist\BI-sim_setup_YYMMDD.exe（1つの EXE。Python 不要）を作る（installer\setup.spec）
 #>
@@ -30,7 +30,7 @@ if ($LASTEXITCODE -ne 0) {
 if (Test-Path (Join-Path $repo "build\BI-sim")) { Remove-Item -Recurse -Force (Join-Path $repo "build\BI-sim") }
 if (Test-Path (Join-Path $repo "dist\BI-sim"))  { Remove-Item -Recurse -Force (Join-Path $repo "dist\BI-sim") }
 
-& $py -m PyInstaller --noconfirm --clean "installer\bisim.spec"
+& $py -m PyInstaller --noconfirm --clean --distpath (Join-Path $repo "dist\BI-sim") --workpath (Join-Path $repo "build") "installer\bisim.spec"
 if ($LASTEXITCODE -ne 0) { Write-Error "PyInstaller が失敗しました。" }
 
 $dist = Join-Path $repo "dist\BI-sim"

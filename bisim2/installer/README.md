@@ -8,7 +8,7 @@ IP設計者へ **EXE で配布**するための PyInstaller 一式。
 
 | ファイル | 内容 |
 |---|---|
-| `bisim.spec` | PyInstaller spec（**6.x 用**。onedir。同梱データ・除外モジュールを定義） |
+| `bisim.spec` | PyInstaller spec（**6.x 用**。2026-11-25 から onefile＝1つの EXE。同梱データ・除外モジュールを定義） |
 | `bisim_launcher.py` | エントリスクリプト（`python -m bisim` 相当。`freeze_support`） |
 | `build_exe.ps1` | ビルド補助（.venv + pyinstaller → `dist/BI-sim/` → zip → インストーラ） |
 | `setup_main.py` | インストーラの本体（2026-11-25）。画面（tkinter）・コピー・ショートカット・アンインストールの登録 |
@@ -41,13 +41,13 @@ IP設計者へ **EXE で配布**するための PyInstaller 一式。
 
 | 同梱する | 同梱しない |
 |---|---|
-| `source/main.py` `source/load_com_info.py`（劣化コア＝新コア。**datas で `_internal/source/` に配置**し `engine._load_core` がファイルパスで直接ロード） | `source/dbi_output/`（CLI の実行結果 96MB） |
+| `source/main.py` `source/load_com_info.py`（劣化コア＝新コア。**datas で `source/` に配置**（起動時に一時フォルダへ展開）し `engine._load_core` がファイルパスで直接ロード） | `source/dbi_output/`（CLI の実行結果 96MB） |
 | `source/dbi_conf/*.csv`（パネル設定の標準ファイル：bcsetting / degparam_mm / degparam_sm） | `source/dbi_common/input.*` `mov_001.mp4` `mov_ht_001.mp4`（原寸動画） |
 | `source/dbi_input/simconf.csv` | `prototype/` `docs/` `.venv/` `build/` `dist/` `source/old_core_261117/`（旧コア） |
 | サンプル入力 `mov_001_480x270.mp4` / `mov_ht_001_480x270.mp4` / `eval_img*.png` | |
 | `matplotlib` の mpl-data（フォント等） | WebEngine / QML / Qt3D / Multimedia / tkinter（`excludes`） |
 
-- 実行時の既定フォルダ（①フォルダ設定）は同梱データ `_internal\source\...` を指す（読み取り専用）。
+- 実行時の既定フォルダ（①フォルダ設定）は同梱データ（起動時の展開先 `%TEMP%\_MEIxxxxxx\source\...`）を指す（読み取り専用。終了すると消える）。
 - **出力の既定は実行ファイル横の `bisim_output\`**（配布時のみ。`bisim/paths.py::_default_output`）。
 - ログ `_log_BISim\` とアプリ設定 `bisim_app.json` も実行ファイル横に作られる。
 

@@ -27,7 +27,7 @@ from pathlib import Path
 
 APP = "BI-sim"
 EXE = "BI-sim.exe"
-PROGRAM_ITEMS = (EXE, "_internal")                      # 入れ替える（消す）のはこれだけ
+PROGRAM_ITEMS = (EXE, "_internal")                      # 入れ替える（消す）のはこれだけ。_internal は onedir だった頃（～11/24）の版を更新するときに消す
 USER_ITEMS = ("_log_BISim", "bisim_app.json", "bisim_output")   # アンインストールで消すか聞くもの
 
 

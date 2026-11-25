@@ -1,11 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 """BI-sim（bisim GUI）の PyInstaller spec。PyInstaller 6.x 用。
 
-    pyinstaller installer/bisim.spec           # リポジトリ直下から
-    →  dist/BI-sim/BI-sim.exe                   （onedir。フォルダごと配布）
+    pyinstaller --distpath dist/BI-sim installer/bisim.spec     # リポジトリ直下から（build_exe.ps1 が実行）
+    →  dist/BI-sim/BI-sim.exe                   （onefile。1つの EXE。_internal フォルダは無い）
 
-onefile（単一 .exe）にしたい場合は下部のコメント参照。
-IP設計者へは onedir + zip を推奨（起動が速い／AV 誤検知が少ない）。
+2026-11-25 から onefile（担当者の依頼）。起動のたびに一時フォルダへ展開するので起動・終了は遅くなるが、
+計算の速さは onedir と同じ。onedir（_internal 付き）に戻す方法は下部のコメント。
 """
 from pathlib import Path
 
@@ -67,11 +67,15 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# onefile（1つの EXE。2026-11-25 から。担当者の依頼で _internal フォルダをなくす）。
+# 起動のたびに中身を一時フォルダ（%TEMP%\_MEIxxxx）に展開してから動く（起動・終了は遅くなるが、計算の速さは同じ）。
+# 出力先は build_exe.ps1 が --distpath dist\BI-sim を渡すので dist\BI-sim\BI-sim.exe（フォルダの構成は従来どおり）。
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.datas,
     [],
-    exclude_binaries=True,
     name="BI-sim",
     debug=False,
     bootloader_ignore_signals=False,
@@ -83,19 +87,11 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    runtime_tmpdir=None,       # 展開先は %TEMP%（既定）
     # icon=str(REPO / "installer" / "bisim.ico"),   # アイコンを用意したら有効化
 )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name="BI-sim",
-)
-
-# --- onefile（単一 .exe）にする場合 ---
-# 上の EXE(...) の引数を  EXE(pyz, a.scripts, a.binaries, a.datas, [], name="BI-sim",
-#   console=False, upx=False, ...)  に変え、exclude_binaries を外し、COLLECT を削除する。
+# --- onedir（_internal フォルダ付き）に戻す場合（2026-11-24 までの形）---
+# 上の EXE(...) から a.binaries・a.datas・runtime_tmpdir を外して exclude_binaries=True を入れ、
+# COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, upx_exclude=[], name="BI-sim") を足す。
+# build_exe.ps1 の PyInstaller の --distpath を外す（dist\BI-sim\ にフォルダごとできる）。
