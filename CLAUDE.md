@@ -77,7 +77,7 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
   rgbcircle 全14ステップが理論値と一致・Excel 検算 21 項目 OK・scaletest も理論どおり。`make_rgbcircle_test.py`・`make_scale_test.py` は
   パネル設定つきの形式に（テストデータ作り直し済み）。GUI仕様・EXEビルド手順書・installer/README・tool/README・実装計画・下の劣化モデルの式を更新、
   `requirements.txt` に openpyxl・python-pptx（tool 用）。**別PC用チェックリスト `doc/progress/261119_別PC確認チェックリスト.md`（3項目）**。
-  引き継ぎは `doc/progress/261119_引き継ぎ資料.md`、開始プロンプトは `261119_次セッション開始プロンプト.md`。
+  引き継ぎは `doc/progress/261119_引き継ぎ資料.md`（**最新は `261125_引き継ぎ資料.md`・`261125_次セッション開始プロンプト.md`**）。
   （累積 Aging 時間の表示は同日修正済み。上の項目）
 
 - **2026-11-18 フェーズF 手順6（結合試験）済**（selftest 120/120）：松井さんの動作確認（pptx の 11 ケース）を bisim のシーケンス
