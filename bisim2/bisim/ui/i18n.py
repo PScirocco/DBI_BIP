@@ -146,8 +146,13 @@ STR: dict[str, dict[str, str]] = {
                            "en": "File changed; re-checked: {names}"},
     "panel.err.run": {"ja": "パネル設定（①）を使えません。\n\n{msg}",
                       "en": "The panel settings (tab 1) cannot be used.\n\n{msg}"},
-    "panel.err.step_sm": {"ja": "ステップ #{n} のサブモデルの差し替え {name} を使えません:\n{problems}",
-                          "en": "The sub-model override {name} of step #{n} cannot be used:\n{problems}"},
+    "panel.err.step_bc": {"ja": "ステップ #{n} の BC設定の差し替え {name} を使えません:\n{problems}",
+                          "en": "The BC-setting override {name} of step #{n} cannot be used:\n{problems}"},
+    "panel.err.chain": {"ja": "初期ストレスが「前ステップ継承」のステップは、前のステップと同じ BC設定（個体）でなければ実行できません"
+                              "（個体Aで劣化させたパネルを個体Bとして続けることになるため）。\n\n{items}",
+                        "en": "A step whose initial stress is 'inherit previous' must use the same BC settings (panel unit) "
+                              "as the previous step (otherwise a panel aged as unit A would continue as unit B).\n\n{items}"},
+    "panel.err.chain_item": {"ja": "ステップ #{n}：{a} → {b}", "en": "Step #{n}: {a} -> {b}"},
 
     # ---- steps tab ----
     "steps.seq_name": {"ja": "シーケンス名", "en": "Sequence name"},
@@ -248,11 +253,15 @@ STR: dict[str, dict[str, str]] = {
     "cfg.dpk_on": {"ja": "DPK_ON（DPK モード）", "en": "DPK_ON (DPK mode)"},
     "cfg.dpk_on.cb": {"ja": "ON", "en": "ON"},
     "cfg.gadj": {"ja": "GADJ（電流調整 ×倍）", "en": "GADJ (current adjustment, x)"},
-    "cfg.grp.sm": {"ja": "サブモデルの差し替え（任意。このステップの劣化後の見え方＝deg2 だけに効きます）",
-                   "en": "Sub-model override (optional; affects only how this step looks = deg2)"},
-    "cfg.sm.cb": {"ja": "このステップだけ別のサブモデルを使う", "en": "Use a different sub model for this step only"},
-    "cfg.sm.base": {"ja": "差し替えなし：パネル設定（①）のサブモデル {name} を使います",
-                    "en": "No override: uses the sub model {name} of the panel settings (tab 1)"},
+    "cfg.grp.bc": {"ja": "BC設定（個体）の差し替え（任意。このステップだけ別の個体の BC設定で計算します）",
+                   "en": "BC-settings (panel unit) override (optional; this step uses another unit's BC settings)"},
+    "cfg.bc.cb": {"ja": "このステップだけ別の BC設定（個体）を使う", "en": "Use different BC settings (panel unit) for this step only"},
+    "cfg.bc.base": {"ja": "差し替えなし：パネル設定（①）の BC設定 {name} を使います",
+                    "en": "No override: uses the BC settings {name} of the panel settings (tab 1)"},
+    "cfg.bc.note": {"ja": "個体ごとに比べるときは、そのステップの初期ストレスを「なし」にします。"
+                          "「前ステップ継承」のステップは、前のステップと同じ BC設定でなければ実行できません",
+                    "en": "To compare panel units, set the initial stress of the step to 'none'. "
+                          "A step that inherits the previous stress must use the same BC settings as the previous step"},
     "cfg.init.file_r": {"ja": "初期 stat_r CSV", "en": "Initial stat_r CSV"},
     "cfg.init.file_g": {"ja": "初期 stat_g CSV", "en": "Initial stat_g CSV"},
     "cfg.init.file_b": {"ja": "初期 stat_b CSV", "en": "Initial stat_b CSV"},

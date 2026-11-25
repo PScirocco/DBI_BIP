@@ -1162,11 +1162,12 @@ def test_display_conditions_via_config_tab():
     _close(win)
 
 
-def test_sm_override_via_config_tab():
+def test_bcset_override_via_config_tab():
+    """③ BC設定（個体）の差し替え（2026-11-25）：選ぶ・検査・Excel で開く・自動の再検査・前ステップ継承の決まり。"""
     if not _pyside_ok():
         return
     import shutil
-    from bisim.paths import STD_DEGPARAM_SM
+    from bisim.paths import STD_BCSET
     from bisim.ui.tabs import folders as folders_mod
     win = _new_window()
     win.steps_tab._add()
@@ -1174,47 +1175,60 @@ def test_sm_override_via_config_tab():
     cfg = win.config_tab
     win.select_step(0)
     r0, r1 = win.sequence.recipes
-    assert not cfg.cb_sm.isChecked() and not cfg.b_sm.isEnabled()
-    assert STD_DEGPARAM_SM.name in cfg.lbl_sm_status.text()
+    assert not hasattr(cfg, "cb_sm")                       # サブモデルの差し替え欄は廃止
+    assert not cfg.cb_bc.isChecked() and not cfg.b_bc.isEnabled()
+    assert STD_BCSET.name in cfg.lbl_bc_status.text()
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
-        alt = d / "sm_alt.csv"
-        shutil.copyfile(STD_DEGPARAM_SM, alt)
-        cfg.cb_sm.setChecked(True)
-        assert cfg.b_sm.isEnabled()
+        alt = d / "bc_unitB.csv"
+        shutil.copyfile(STD_BCSET, alt)
+        cfg.cb_bc.setChecked(True)
+        assert cfg.b_bc.isEnabled()
         warned, restore = _stub_dialogs(open_path=alt)
         try:
-            cfg._pick_sm()                                  # モデルフォルダの外 → 絶対パスで持つ
+            cfg._pick_bc()                                  # BC設定フォルダの外 → 絶対パスで持つ
         finally:
             restore()
-        assert not warned and r0.sm_override == str(alt.resolve())
-        assert win.sequence.sm_path(0) == alt.resolve()
-        assert "OK" in cfg.lbl_sm_status.text() and cfg.ed_sm.text() == "sm_alt.csv"
-        assert win.sequence.folders["model"] != str(d)     # ①のモデルフォルダは動かさない
+        assert not warned and r0.bcset_override == str(alt.resolve())
+        assert win.sequence.bcset_path(0) == alt.resolve()
+        assert "OK" in cfg.lbl_bc_status.text() and cfg.ed_bc.text() == "bc_unitB.csv"
+        assert win.sequence.folders["bcset"] != str(d)     # ①の BC設定フォルダは動かさない
         # 別のステップを選んで戻っても消えない
         win.select_step(1)
-        assert not cfg.cb_sm.isChecked() and r1.sm_override == ""
+        assert not cfg.cb_bc.isChecked() and r1.bcset_override == ""
         win.select_step(0)
-        assert cfg.cb_sm.isChecked() and r0.sm_override == str(alt.resolve())
-        # 実行前の検査も通る
+        assert cfg.cb_bc.isChecked() and r0.bcset_override == str(alt.resolve())
+        # 実行前の検査：ステップ02 は初期ストレス なし → 通る
         assert win._ensure_model([0, 1])
+        # ステップ02 を前ステップ継承にすると、個体B → 個体A になるので実行させない
+        r1.init_stress = "prev"
+        errs = []
+        from PySide6.QtWidgets import QMessageBox
+        orig_crit = QMessageBox.critical
+        QMessageBox.critical = staticmethod(lambda *a, **k: errs.append(a[2]))
+        try:
+            assert not win._ensure_model([0, 1])
+        finally:
+            QMessageBox.critical = orig_crit
+        assert errs and "#2" in errs[0] and "bc_unitB.csv" in errs[0]
+        r1.init_stress = "none"
         # Excel で開く → 差し替えのファイルをそのまま開く（複製しない）。保存したら自動で検査し直す
         opened = []
         orig_open = folders_mod.open_external
         folders_mod.open_external = lambda p: opened.append(Path(p)) or True
         try:
-            cfg._open_sm()
+            cfg._open_bc()
         finally:
             folders_mod.open_external = orig_open
-        assert opened == [alt.resolve()] and sorted(p.name for p in d.iterdir()) == ["sm_alt.csv"]
-        lines = [ln for ln in alt.read_text(encoding="utf-8").splitlines() if not ln.startswith("DEG_2D_I_G,")]
+        assert opened == [alt.resolve()] and sorted(p.name for p in d.iterdir()) == ["bc_unitB.csv"]
+        lines = [ln for ln in alt.read_text(encoding="utf-8").splitlines() if not ln.startswith("DUTY_BC,")]
         alt.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        cfg._sm_watch.check_now()
-        assert "DEG_2D_I_G" in cfg.lbl_sm_status.text()
-        shutil.copyfile(STD_DEGPARAM_SM, alt)
-        cfg._sm_watch.check_now()
-        assert "OK" in cfg.lbl_sm_status.text()
+        cfg._bc_watch.check_now()
+        assert "DUTY_BC" in cfg.lbl_bc_status.text()
+        shutil.copyfile(STD_BCSET, alt)
+        cfg._bc_watch.check_now()
+        assert "OK" in cfg.lbl_bc_status.text()
         # チェックを外すと差し替えを解除
-        cfg.cb_sm.setChecked(False)
-        assert r0.sm_override == "" and STD_DEGPARAM_SM.name in cfg.lbl_sm_status.text()
+        cfg.cb_bc.setChecked(False)
+        assert r0.bcset_override == "" and STD_BCSET.name in cfg.lbl_bc_status.text()
     _close(win)

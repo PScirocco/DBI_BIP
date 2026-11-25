@@ -107,7 +107,7 @@ def recipe(name: str, step_type: str, image: str, aging_time: float, init: str) 
         "sim_param_csv": "",
         "init_stress": init,
         "init_stress_files": {"r": "", "g": "", "b": ""},
-        "sm_override": "",
+        "bcset_override": "",
     }
 
 

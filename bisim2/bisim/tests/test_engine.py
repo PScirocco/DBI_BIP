@@ -845,51 +845,62 @@ def _small_still(d: Path, name="small.png") -> str:
     return name
 
 
-def test_sm_override_changes_deg2_only():
-    """ステップごとのサブモデルの差し替え：deg2（表示）だけが変わり、stat・deg1 は変わらない。"""
+def test_bcset_override_switches_unit_per_step():
+    """ステップごとの BC設定（個体）の差し替え（2026-11-25）：電流が変わるので stat が変わる。None で元に戻る。"""
     with tempfile.TemporaryDirectory() as d:
         dd = Path(d)
         f = _folders(d)
         f["input_image"] = str(dd)
         img = _small_still(dd)
-        alt = _edit_csv(STD_DEGPARAM_SM, dd / "sm_alt.csv", scale_lut=0.9)
-        assert engine.check_sm(alt, 15).ok
+        alt = _edit_csv(STD_BCSET, dd / "bc_alt.csv", scale_lut=0.9)     # GI_LUT（電流）を 0.9 倍＝別の個体
+        assert engine.check_bcset(alt).ok
         m = engine.CoreModel()
         r = Recipe(recipe_name="a", input_image=img, step_type="aging", heatmap_mode="fixed")
         r.sim_param.update(ACCEL_RATIO=1000.0, AGING_TIME=2000.0)         # 2フレーム
         res0 = engine.run_recipe(recipe=r, folders=f, sequence_name="T", nn="01", model=m)
-        res1 = engine.run_recipe(recipe=r, folders=f, sequence_name="T", nn="01", model=m,
-                                 sm_path=alt)
-        assert m.sm_path == alt
-        assert np.array_equal(res0.state.r, res1.state.r)               # stat は同じ
-        assert not np.allclose(res0.deg2.r, res1.deg2.r)                 # deg2 は違う
+        res1 = engine.run_recipe(recipe=r, folders=f, sequence_name="T", nn="01", model=m, bcset_path=alt)
+        assert m.bcset_path == alt
+        nz = res0.state.r > 0
+        assert np.allclose(res1.state.r[nz] / res0.state.r[nz], 0.9 ** 1.5)   # stat ∝ 電流^N（N_r=1.5）
         res2 = engine.run_recipe(recipe=r, folders=f, sequence_name="T", nn="01", model=m)
-        assert m.sm_path == m.base_sm_path                               # None＝シーケンスの sm に戻る
-        assert np.array_equal(res0.deg2.r, res2.deg2.r)
+        assert m.bcset_path == m.base_bcset_path                         # None＝シーケンスの BC設定に戻る
+        assert np.array_equal(res0.state.r, res2.state.r)
 
 
-def test_run_sequence_uses_panel_mm_and_step_sm():
+def test_run_sequence_uses_panel_mm_and_step_bcset_with_chain_rule():
+    """シーケンスの mm、ステップごとの BC設定。前ステップ継承のステップは前と同じ BC設定でなければ実行しない。"""
     with tempfile.TemporaryDirectory() as d:
         dd = Path(d)
         img = _small_still(dd)
-        _edit_csv(STD_DEGPARAM_SM, dd / "sm_alt.csv", scale_lut=0.9)
+        _edit_csv(STD_BCSET, dd / "bc_alt.csv", scale_lut=0.9)
         import shutil
-        shutil.copyfile(STD_DEGPARAM_SM, dd / STD_DEGPARAM_SM.name)
+        shutil.copyfile(STD_BCSET, dd / STD_BCSET.name)
         seq = Sequence(sequence_name="P", folders=_folders(d))
-        seq.folders["input_image"] = seq.folders["model"] = str(dd)   # sm（差し替えも）はモデルフォルダ
-        r1 = Recipe(recipe_name="age", input_image=img, step_type="aging", heatmap_mode="fixed")
+        seq.folders["input_image"] = seq.folders["bcset"] = str(dd)   # BC設定（差し替えも）は BC設定フォルダ
+        r1 = Recipe(recipe_name="unitA", input_image=img, step_type="aging", heatmap_mode="fixed")
         r1.sim_param.update(ACCEL_RATIO=1000.0, AGING_TIME=1000.0)
-        r2 = Recipe(recipe_name="pq", input_image=img, step_type="eval", init_stress="prev")
-        seq.recipes = [r1, r2]
-        res_a = engine.run_sequence(sequence=seq, model=_model())
+        r2 = Recipe(recipe_name="unitB", input_image=img, step_type="aging", heatmap_mode="fixed",
+                    bcset_override="bc_alt.csv")
+        r2.sim_param.update(ACCEL_RATIO=1000.0, AGING_TIME=1000.0)
+        r3 = Recipe(recipe_name="pqB", input_image=img, step_type="eval", init_stress="prev")
+        seq.recipes = [r1, r2, r3]
+        # ステップ03 は前ステップ継承なのに、個体B（bc_alt）→ 個体A（シーケンスの BC設定）になる → 実行しない
+        assert seq.bcset_chain_problems() == [(3, "bc_alt.csv", STD_BCSET.name)]
+        try:
+            engine.run_sequence(sequence=seq, model=_model())
+        except engine.EngineError as e:
+            assert "ステップ03" in str(e)
+        else:
+            raise AssertionError("前ステップ継承で BC設定が変わるときは EngineError")
+        r3.bcset_override = "bc_alt.csv"                               # 同じ個体で続ける → 実行できる
+        assert seq.bcset_chain_problems() == []
+        res = engine.run_sequence(sequence=seq, model=_model())
+        nz = res[0].state.r > 0
+        assert np.allclose(res[1].state.r[nz] / res[0].state.r[nz], 0.9 ** 1.5)   # 個体B は電流 0.9 倍
+        assert np.array_equal(res[2].state.r, res[1].state.r)           # PQ評価は貯めない
         seq.panel.model_param["K0"] = [k * 2 for k in seq.panel.model_param["K0"]]
-        r2.sm_override = "sm_alt.csv"
-        res_b = engine.run_sequence(sequence=seq, model=_model())
-        # mm（K0 を2倍）→ stat は半分
-        assert np.allclose(res_b[0].state.r, res_a[0].state.r / 2)
-        # 2ステップ目（PQ評価）だけ sm を差し替え → deg2 が違う。1ステップ目は同じ sm
-        assert not np.allclose(res_a[1].deg2.g, res_b[1].deg2.g)
-        assert _model().sm_path == seq.sm_path(1)
+        res_k = engine.run_sequence(sequence=seq, model=_model())
+        assert np.allclose(res_k[0].state.r, res[0].state.r / 2)         # mm（K0 を2倍）→ stat は半分
 
 
 def test_eval_step_uses_display_conditions():

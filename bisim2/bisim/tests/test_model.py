@@ -17,7 +17,7 @@ def test_recipe_defaults():
     assert set(r.sim_param) == set(SIM_KEYS)
     assert r.sim_param["DBV_NIT"] == 2000.0 and r.sim_param["DPK_ON"] == 0
     assert r.sim_param["GADJ"] == [1.0, 1.0, 1.0]
-    assert r.sm_override == ""
+    assert r.bcset_override == ""
     assert r.init_stress == "none"
     assert r.heatmap_mode == "file" and r.fixed_temp_c == 25.0
     assert r.validate() == []
@@ -153,11 +153,11 @@ def test_recipe_from_old_json_without_step_type():
 
 def test_recipe_roundtrip():
     r = Recipe(recipe_name="日本語01", input_image="x.mp4", heatmap="x_ht.mp4",
-               init_stress="prev", sm_override="sm_alt.csv")
+               init_stress="prev", bcset_override="bc_unitB.csv")
     r.sim_param.update(DBV_NIT=600.0, DPK_ON=1, GADJ=[1.1, 1.0, 0.9])
     r2 = Recipe.from_dict(r.to_dict())
     assert r2.to_dict() == r.to_dict()
-    assert r2.recipe_name == "日本語01" and r2.sm_override == "sm_alt.csv"
+    assert r2.recipe_name == "日本語01" and r2.bcset_override == "bc_unitB.csv"
     assert r2.sim_param["DPK_ON"] == 1 and r2.sim_param["GADJ"] == [1.1, 1.0, 0.9]
 
 
@@ -285,13 +285,37 @@ def test_panel_defaults_and_roundtrip():
     assert PanelConfig.from_dict({}) == PanelConfig()
 
 
-def test_sequence_panel_paths_and_sm_override():
+def test_sequence_panel_paths_and_bcset_override():
+    """BC設定（個体）はステップごとに差し替えられる。サブモデル（機種）はシーケンスに1組（2026-11-25）。"""
     seq = Sequence(folders={"bcset": "C:/bc", "model": "C:/mdl"})
-    seq.recipes = [Recipe(recipe_name="a"), Recipe(recipe_name="b", sm_override="sm_b.csv")]
-    assert seq.bcset_path() == Path("C:/bc") / STD_BCSET.name
+    seq.recipes = [Recipe(recipe_name="a"), Recipe(recipe_name="b", bcset_override="bc_b.csv"),
+                   Recipe(recipe_name="c", bcset_override="D:/other/bc_c.csv")]
     assert seq.sm_path() == Path("C:/mdl") / STD_DEGPARAM_SM.name
-    assert seq.sm_path(0) == seq.sm_path()                       # 差し替えなし
-    assert seq.sm_path(1) == Path("C:/mdl") / "sm_b.csv"
+    assert seq.bcset_path() == Path("C:/bc") / STD_BCSET.name
+    assert seq.bcset_path(0) == seq.bcset_path()                  # 差し替えなし
+    assert seq.bcset_path(1) == Path("C:/bc") / "bc_b.csv"
+    assert seq.bcset_path(2) == Path("D:/other/bc_c.csv")          # フォルダの外は絶対パスのまま
+
+
+def test_bcset_chain_rule():
+    """前ステップ継承のステップは、前のステップと同じ BC設定（個体）でなければならない。"""
+    seq = Sequence(folders={"bcset": "C:/bc", "model": "C:/mdl"})
+    seq.recipes = [Recipe(recipe_name="a"),
+                   Recipe(recipe_name="b", init_stress="prev"),                         # 同じ個体 → OK
+                   Recipe(recipe_name="c", bcset_override="bc_b.csv"),                  # なし → OK
+                   Recipe(recipe_name="d", init_stress="prev", bcset_override="bc_b.csv"),  # 同じ個体 → OK
+                   Recipe(recipe_name="e", init_stress="prev")]                         # 個体B → A → NG
+    assert seq.bcset_chain_problems() == [(5, "bc_b.csv", STD_BCSET.name)]
+    assert seq.bcset_chain_problems([3]) == []                    # 調べるステップを絞れる
+    assert seq.bcset_chain_problems([4]) == [(5, "bc_b.csv", STD_BCSET.name)]
+
+
+def test_old_json_sm_override_is_ignored_with_warning():
+    """廃止した「サブモデルのステップごとの差し替え」を使っていた JSON：無視して警告（2026-11-25）。"""
+    s = Sequence.from_dict({"sequence_name": "t", "panel": {}, "recipes": [
+        {"recipe_name": "a"}, {"recipe_name": "b", "sm_override": "sm_alt.csv"}]})
+    assert any("サブモデルのステップごとの差し替えは廃止" in w and "02" in w for w in s.load_warnings)
+    assert "sm_override" not in s.recipes[1].to_dict()
 
 
 def test_old_sequence_json_gets_standard_panel():

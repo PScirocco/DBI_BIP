@@ -52,8 +52,14 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | `material/AMOLED_Image_sticking_prevention_compensation_v01.pptx`（2018, Matsui） | DBI補正アルゴリズムの理論。劣化モデルの根拠 |
 | `material/Platform Concept for DBI & BIP development.pptx`（2026.07, Matsui & Isobe） | シミュレータ＋DBI/BIP評価プラットフォームの構想 |
 
-## 現在の状況（2026-11-19）
+## 現在の状況（2026-11-25）
 
+- **2026-11-25 ③の「サブモデルの差し替え」を「BC設定（個体）の差し替え」に変更**（担当者の指示。松井さんの「mm・sm＝機種ごと、bcsetting＝個体ごと」を重視。selftest 125/125）：
+  `Recipe.bcset_override`（`sm_override` は廃止。前の JSON の指定は開いたときに警告して無視）、`Sequence.bcset_path(i)`・`sm_path()`（引数なし）、
+  `Sequence.bcset_chain_problems`：**前ステップ継承のステップは前のステップと同じ BC設定でなければ実行しない**（`run_sequence` と `MainWindow._ensure_model` で止める）。
+  `CoreModel.use_bcset`（BC設定をステップごとに切り替え。Band 選択のキャッシュは BC設定ごと。`use_sm` は廃止）。差し替えなしの計算は変わらない（11 ケース ALL OK）。
+  用途：個体ごとに Aging を比べる（そのステップは初期ストレス「なし」）。進捗報告07 の③の頁・画像も更新。**画面確認 OK（11/25、開発PC、2項目）**
+- 2026-11-24 進捗報告07（`doc/progress/2026-11-24_進捗報告07_presen.md`、画像 `img_261124/`。PDF は Git 管理外）。計算時間の体験用テスト `tool/make_speed_test.py` → `bisim2/eval_test/speedtest_phone/`
 - **2026-11-19 フェーズF 完了**：別PC（EXE）確認 OK（11 ケース・理論確認・Excel とも OK、CSV は開発PCとバイト単位で同一。`doc/progress/261119_別PC確認チェックリスト.md`）。
   同日、担当者の指示で2件を修正（selftest 123/123）：
   (1) **シーケンスのフォルダは、シーケンスファイルからの相対パスで保存**（案A）：`Sequence.save` がシーケンスファイルの下は相対、
@@ -93,7 +99,7 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 
 - **2026-11-18 フェーズF 手順5 区切り1（5-1 データ＋5-2 ①タブ）済**：パネル設定はシーケンスに1組（`Sequence.panel`＝`model.PanelConfig`：
   bcsetting・sm はファイル名＋①のフォルダ、mm は数値。**mm・sm＝機種ごと、bcsetting＝個体ごと**（松井さん 11/17 回答））。
-  `Recipe.model_param` は廃止（旧 JSON は標準ファイル＋1番目のステップの mm に移行し警告）、`Recipe.sm_override`（ステップごとの sm 差し替え）。
+  `Recipe.model_param` は廃止（旧 JSON は標準ファイル＋1番目のステップの mm に移行し警告）、`Recipe.sm_override`（ステップごとの sm 差し替え。**11/25 に廃止し bcset_override へ**）。
   Sim 条件に `DBV_NIT`・`DPK_ON`・`GADJ`。①に「パネル設定」欄（検査結果・Excel で開く（当初は「複製して Excel で開く」。画面確認後に変更）・再検査・mm の表）。
   `engine.check_bcset`・`check_sm`、`CoreModel.use_sm`、`engine.panel_key`（ファイルの更新時刻込み。変わればモデルを作り直す）。
   標準の simconf.csv は `DPK_ON=0`・`GADJ=1,1,1` に。selftest **115/115**、松井さんの 11 ケースは差 0 のまま。
@@ -230,11 +236,11 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 | モジュール | 役割 | フェーズ |
 |---|---|---|
 | `paths.py` | SOURCE_DIR / APP_DIR / LOG_DIR / 既定フォルダ6種（フェーズF：bcset・model＝`source/dbi_conf`、simconf＝`source/dbi_input`）/ パネル設定の標準ファイル `STD_BCSET`・`STD_DEGPARAM_MM`・`STD_DEGPARAM_SM` | A/F |
-| `model.py` | `Recipe`（`step_type`＝`aging`/`eval` を手動選択・未指定/旧JSONは拡張子から。`heatmap_mode`/`fixed_temp_c` でヒートマップなし＝固定温度に対応。`sm_override`。mm は持たない） / `Sequence`（`stops` に停止状態を内包、`panel`＝`PanelConfig`、`bcset_path()`・`sm_path(i)`、旧 JSON の移行と `load_warnings`） / `StopState` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） / `SIM_KEYS`（新3項目）・`parse_sim_value` | A/D/F |
+| `model.py` | `Recipe`（`step_type`＝`aging`/`eval` を手動選択・未指定/旧JSONは拡張子から。`heatmap_mode`/`fixed_temp_c` でヒートマップなし＝固定温度に対応。`bcset_override`（ステップごとの BC設定＝個体の差し替え。11/25）。mm は持たない） / `Sequence`（`stops` に停止状態を内包、`panel`＝`PanelConfig`、`bcset_path(i)`・`sm_path()`・`bcset_chain_problems`、旧 JSON の移行と `load_warnings`） / `StopState` / `AppConfig`（JSON, `ensure_ascii=False`、レシピ単体保存可） / `SIM_KEYS`（新3項目）・`parse_sim_value` | A/D/F |
 | `naming.py` | 入出力ファイル名の生成・分解、`sanitize_name`（`_`→`-`）、`stop_dir`（`_stops/` チェックポイントのフォルダ名） | A/D |
 | `paramio.py` | model/sim パラメータ CSV I/O（CLI版 `degparam_mm.csv` / `simconf.csv` と互換） | B |
 | `imio.py` | Unicode パス対応の画像 I/O（prototype から移植） | B |
-| `engine.py` | `run_recipe` は種別で分岐（Aging×動画／Aging×静止画＝`STILL_AGING_FPS`=1／PQ評価＝`dt=0`・`EVAL_TEMP_C`=25℃固定）/ `media_size`・`sequence_reference_size`（③の画像サイズ検査）/ `DegradationModel`（差し替え点。`update(..., deg2=None)`）/ `CoreModel`（新コア `burn_in_core` のラップ。bcsetting・sm を読み、`use_sm` でステップごとに sm を差し替え、Band 選択を sm・`DBV_NIT`・`DPK_ON` ごとにキャッシュ。`panel_key`。フェーズF）/ `check_bcset`・`check_sm`（パネル設定ファイルの検査）/ `panel_key`・`file_key` / `core_sim_dict`・`CORE_SIM_DEFAULTS` / `RGBMaps`（deg2 など）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に。`AGING_TIME`>0 で目標時間駆動＝超過打切り／不足なら動画を周回連結、`resume_from` が周回をまたぐ場合は `% frames_total` でシーク、見積りは `aging_time_add_frames()` に共通化）/ `run_sequence` / 出力の確定・破棄 / `format_aging`（時:分:秒表示）/ `movie_meta`（fps・総フレーム数） / `black_mask_bgr`・`RunResult.input_black`（⑤で除く黒の画素。フェーズF） | B/D |
+| `engine.py` | `run_recipe` は種別で分岐（Aging×動画／Aging×静止画＝`STILL_AGING_FPS`=1／PQ評価＝`dt=0`・`EVAL_TEMP_C`=25℃固定）/ `media_size`・`sequence_reference_size`（③の画像サイズ検査）/ `DegradationModel`（差し替え点。`update(..., deg2=None)`）/ `CoreModel`（新コア `burn_in_core` のラップ。bcsetting・sm を読み、`use_bcset` でステップごとに BC設定を差し替え（11/25）、Band 選択を BC設定・`DBV_NIT`・`DPK_ON` ごとにキャッシュ。`panel_key`。フェーズF）/ `check_bcset`・`check_sm`（パネル設定ファイルの検査）/ `panel_key`・`file_key` / `core_sim_dict`・`CORE_SIM_DEFAULTS` / `RGBMaps`（deg2 など）/ `StressState` / `RunControl` / `ResumePlan`・`write_stop_checkpoint`・`build_resume_plan`・`remove_stop_checkpoint`（停止・再開。`StopState` は `model.py`）/ `run_recipe`（`resume_from`/`resume_video` で連続動画。`heatmap_mode="fixed"` 時は `source/` 無改変のまま `TMP_L=TMP_H=fixed_temp_c` を渡してヒートマップ不要に。`AGING_TIME`>0 で目標時間駆動＝超過打切り／不足なら動画を周回連結、`resume_from` が周回をまたぐ場合は `% frames_total` でシーク、見積りは `aging_time_add_frames()` に共通化）/ `run_sequence` / 出力の確定・破棄 / `format_aging`（時:分:秒表示）/ `movie_meta`（fps・総フレーム数） / `black_mask_bgr`・`RunResult.input_black`（⑤で除く黒の画素。フェーズF） | B/D |
 | `logio.py` | `Logger`（`_log_BISim/` セッションローテーション＝起動ごとに新ファイル。容量超過時は同一セッション内でも新パートへ、総容量上限、画面表示 listener） | B |
 | `ui/` | `theme.py`（明るいグレー基調）/ `i18n.py`（JP/EN・文言レビュー反映）/ `widgets.py` / `main_window.py`（`MainWindow`＋`SimWorker`）/ `tabs/`（5タブ。`folders.py`①にパネル設定欄（フェーズF）、`step_config.py`③にステップ種別の選択＋PQ評価時はヒートマップ・Sim条件欄を隠す＋ファイル選択時の画像サイズ検査、`run.py`④に選択ステップの動画情報＋AGING_TIME判定ラベル、`results.py`⑤の輝度残存率マップは deg1／deg2／deg1×deg2 の選択ボタン＋0〜1／面内最小〜最大（フェーズF）、累積時間マップはR/G/B各色独自の最大値で正規化） | C/D |
 | `installer/` | `bisim.spec`（PyInstaller 6.x・onedir）/ `bisim_launcher.py` / `build_exe.ps1` / `README.md`。手順は `doc/EXEビルド手順書.md` | E |

@@ -311,9 +311,10 @@ class CoreModel:
     - パネル設定（bcsetting・サブモデル degparam_sm）は作成時に読み込む（既定は標準ファイル
       ``source/dbi_conf/``。画面はシーケンスのパネル設定を渡す）。
       マスターモデルのパラメータ（mm）は ``update``・``deg_maps`` の引数（シーケンスのパネル設定）。
-    - サブモデルはステップごとに差し替えられる（``use_sm``。表示＝deg2 だけに効く）。読んだ sm は覚えておく
-    - Band 選択（``burn_in_band_extract``）は画像に依らず sm・``DBV_NIT``・``DPK_ON`` だけで
-      決まるので、その組ごとに1回だけ計算して覚えておく。
+    - BC設定（個体ごと）はステップごとに差し替えられる（``use_bcset``。2026-11-25）。読んだ BC設定は覚えておく。
+      サブモデル（機種ごと）はシーケンスに1組
+    - Band 選択（``burn_in_band_extract``）は画像に依らず BC設定・``DBV_NIT``・``DPK_ON`` だけで
+      決まるので（sm はモデルに1つ）、その組ごとに1回だけ計算して覚えておく。
     - ``deg_maps``（deg1）は新コアの出力と同じ ``exp(-stat^B0)``（温度は使わない）。
     """
 
@@ -322,18 +323,18 @@ class CoreModel:
     def __init__(self, bcset_path=None, sm_path=None, log=None) -> None:
         self._core = _load_core()
         self.log = log
-        self.bcset_path = Path(bcset_path or STD_BCSET)
-        self.base_sm_path = Path(sm_path or STD_DEGPARAM_SM)
-        self._bc_key = file_key(self.bcset_path)
-        bc = check_bcset(self.bcset_path)
-        if not bc.ok:
-            raise EngineError(f"BC設定 {self.bcset_path} を使えません:\n  " + "\n  ".join(bc.problems))
-        self.bc_dict = bc.data
-        self._sm_cache: dict = {}
+        self.base_bcset_path = Path(bcset_path or STD_BCSET)
+        self.sm_path = Path(sm_path or STD_DEGPARAM_SM)
+        self._bc_cache: dict = {}
         self._band_cache: dict = {}
-        self._base_sm_key = file_key(self.base_sm_path)
-        self.sm_path, self._sm_key = self.base_sm_path, self._base_sm_key
-        self.sm_dict = self._load_sm(self.base_sm_path, self._sm_key)
+        self._base_bc_key = file_key(self.base_bcset_path)
+        self.bcset_path, self._bc_key = self.base_bcset_path, self._base_bc_key
+        self.bc_dict = self._load_bc(self.base_bcset_path, self._bc_key)
+        self._sm_key = file_key(self.sm_path)
+        sm = check_sm(self.sm_path, self.bc_dict["BC_BAND_NUM"])
+        if not sm.ok:
+            raise EngineError(f"サブモデル {self.sm_path} を使えません:\n  " + "\n  ".join(sm.problems))
+        self.sm_dict = sm.data
 
     @property
     def panel_key(self) -> tuple:
@@ -342,32 +343,36 @@ class CoreModel:
         画面はシーケンスのパネル設定の ``panel_key`` と比べ、違えば（別のファイルを選んだ・
         Excel で直して保存し直した）モデルを作り直す。
         """
-        return (self._bc_key, self._base_sm_key)
+        return (self._base_bc_key, self._sm_key)
 
-    def _load_sm(self, path: Path, key: tuple) -> dict:
-        sm = self._sm_cache.get(key)
-        if sm is None:
-            chk = check_sm(path, self.bc_dict["BC_BAND_NUM"])
+    def _load_bc(self, path: Path, key: tuple) -> dict:
+        bc = self._bc_cache.get(key)
+        if bc is None:
+            chk = check_bcset(path)
             if not chk.ok:
-                raise EngineError(f"サブモデル {path} を使えません:\n  " + "\n  ".join(chk.problems))
-            sm = self._sm_cache[key] = chk.data
-        return sm
+                raise EngineError(f"BC設定 {path} を使えません:\n  " + "\n  ".join(chk.problems))
+            bc = self._bc_cache[key] = chk.data
+        return bc
 
-    def use_sm(self, path=None) -> None:
-        """このステップで使うサブモデルに切り替える（``None``＝シーケンスの sm）。"""
-        path = Path(path) if path is not None else self.base_sm_path
+    def use_bcset(self, path=None) -> None:
+        """このステップで使う BC設定（個体）に切り替える（``None``＝シーケンスの BC設定）。"""
+        path = Path(path) if path is not None else self.base_bcset_path
         key = file_key(path)
-        if key == self._sm_key:
+        if key == self._bc_key:
             return
-        self.sm_dict = self._load_sm(path, key)
-        self.sm_path, self._sm_key = path, key
+        bc = self._load_bc(path, key)
+        sm_bands = self.sm_dict["DEG_2D_BC_IxDEG_R"].shape[0]
+        if bc["BC_BAND_NUM"] != sm_bands:
+            raise EngineError(f"BC設定 {path.name} の Band 数 {bc['BC_BAND_NUM']} が"
+                              f"サブモデル {self.sm_path.name} の Band 数 {sm_bands} と違います")
+        self.bc_dict, self.bcset_path, self._bc_key = bc, path, key
         if self.log:
-            self.log.action(f"サブモデル: {path.name}")
+            self.log.action(f"BC設定: {path.name}")
 
     def band_data(self, sim: dict) -> dict:
-        """``burn_in_core`` に渡す Band 間補間用データ（sm・``DBV_NIT``・``DPK_ON`` ごとにキャッシュ）。"""
+        """``burn_in_core`` に渡す Band 間補間用データ（BC設定・``DBV_NIT``・``DPK_ON`` ごとにキャッシュ）。"""
         dbv, dpk = float(sim["DBV_NIT"]), int(sim["DPK_ON"])
-        key = (self._sm_key, dbv, dpk)
+        key = (self._bc_key, dbv, dpk)
         band = self._band_cache.get(key)
         if band is None:
             rc, band, blog = self._core.burn_in_band_extract(self.bc_dict, self.sm_dict, sim)
@@ -605,7 +610,7 @@ def run_recipe(
     progress_cb: Optional[Callable] = None,   # (done:int, total:int, preview_bgr|None)
     log=None,
     model_param: Optional[dict] = None,       # mm（シーケンスのパネル設定）。None＝既定値
-    sm_path=None,                             # このステップのサブモデル（None＝モデルの既定の sm）
+    bcset_path=None,                          # このステップの BC設定（None＝モデルの既定＝シーケンスの BC設定）
 ) -> RunResult:
     """1ステップを実行する。処理はステップ種別（``recipe.step_type``）で決まる:
 
@@ -618,9 +623,9 @@ def run_recipe(
     """
     control = control or RunControl()
     mm = model_param if model_param is not None else {k: list(v) for k, v in DEFAULT_MODEL.items()}
-    use_sm = getattr(model, "use_sm", None)       # サブモデルを差し替えられるモデル（CoreModel）
-    if use_sm is not None:
-        use_sm(sm_path)
+    use_bcset = getattr(model, "use_bcset", None)  # BC設定を差し替えられるモデル（CoreModel）
+    if use_bcset is not None:
+        use_bcset(bcset_path)
     eval_step = recipe.is_eval
     fixed_temp = eval_step or recipe.heatmap_mode == "fixed"
     temp_c = EVAL_TEMP_C if eval_step else recipe.fixed_temp_c
@@ -1067,6 +1072,10 @@ def run_sequence(
 ) -> list:
     control = control or RunControl()
     indices = [only_index] if only_index is not None else list(range(len(sequence.recipes)))
+    chain = sequence.bcset_chain_problems(indices)
+    if chain:                                     # 前ステップ継承なのに BC設定（個体）が変わる（2026-11-25）
+        raise EngineError("前ステップ継承のステップで BC設定（個体）が前のステップと違います: "
+                          + "、".join(f"ステップ{n:02d}（{a} → {b}）" for n, a, b in chain))
     results: list = []
     cumulative = 0.0
     prev_idx: Optional[int] = None
@@ -1104,7 +1113,7 @@ def run_sequence(
             initial_state=init_state, control=control,
             resume_from=rf, resume_video=rv, resume_aging_seconds=ras,
             progress_cb=_pcb, log=log, max_frames=max_frames,
-            model_param=sequence.panel.model_param, sm_path=sequence.sm_path(idx),
+            model_param=sequence.panel.model_param, bcset_path=sequence.bcset_path(idx),
         )
         # 累積 Aging 時間は「今のストレスの履歴」の時間。初期ストレスが前ステップ継承でなければ
         # （なし・ファイル指定）このステップから数え直す（2026-11-19。以前はシーケンスの最初からの合計だった）

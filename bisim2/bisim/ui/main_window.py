@@ -420,7 +420,8 @@ class MainWindow(QMainWindow):
     def _ensure_model(self, indices=None) -> bool:
         """シーケンスのパネル設定でモデルを用意する（パネル設定が変わっていたら作り直す）。
 
-        ``indices`` のステップにサブモデルの差し替えがあれば、そのファイルも実行前に検査する。
+        ``indices`` のステップに BC設定の差し替えがあれば、そのファイルも実行前に検査する。
+        前ステップ継承のステップで BC設定（個体）が前のステップと違えば実行させない（2026-11-25）。
         """
         seq = self.sequence
         bc_path, sm_path = seq.bcset_path(), seq.sm_path()
@@ -435,14 +436,24 @@ class MainWindow(QMainWindow):
                 return False
             self.logger.action(f"パネル設定を読込: BC設定 {bc_path.name} / サブモデル {sm_path.name}")
         for i in indices or []:
-            if seq.recipes[i].sm_override:
-                chk = engine.check_sm(seq.sm_path(i), self.model.bc_dict["BC_BAND_NUM"])
-                if not chk.ok:
-                    msg = t("panel.err.step_sm", n=i + 1, name=seq.recipes[i].sm_override,
-                            problems="\n".join(chk.problems))
+            if seq.recipes[i].bcset_override:
+                chk = engine.check_bcset(seq.bcset_path(i))
+                problems = list(chk.problems)
+                sm_bands = self.model.sm_dict["DEG_2D_BC_IxDEG_R"].shape[0]
+                if chk.ok and chk.data["BC_BAND_NUM"] != sm_bands:
+                    problems.append(f"Band 数 {chk.data['BC_BAND_NUM']} がサブモデルの Band 数 {sm_bands} と違います")
+                if problems:
+                    msg = t("panel.err.step_bc", n=i + 1, name=Path(seq.recipes[i].bcset_override).name,
+                            problems="\n".join(problems))
                     self.logger.error(msg)
                     QMessageBox.critical(self, t("dlg.err.title"), msg)
                     return False
+        chain = seq.bcset_chain_problems(indices)
+        if chain:
+            msg = t("panel.err.chain", items="\n".join(t("panel.err.chain_item", n=n, a=a, b=b) for n, a, b in chain))
+            self.logger.error(msg)
+            QMessageBox.critical(self, t("dlg.err.title"), msg)
+            return False
         return True
 
     def _calc_elapsed(self) -> float:

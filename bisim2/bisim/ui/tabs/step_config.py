@@ -6,7 +6,8 @@ Sim条件＋CSV、初期ストレス（なし / 前ステップ継承 / ファ�
 ステップ種別（Aging / PQ評価）は手動で選ぶ。PQ評価ではヒートマップと Sim条件のうち Aging 条件
 （ACCEL_RATIO・TMP_L/H・AGING_TIME）の欄を隠す（ストレスを貯めない・温度設定なし。2026-10-19 決定）。
 表示条件（DBV_NIT・DPK_ON・GADJ）は PQ評価でも設定する（フェーズF）。
-サブモデルの差し替え（任意）：このステップだけ別の degparam_sm を使う（表示＝deg2 だけに効く）。
+BC設定（個体）の差し替え（任意。2026-11-25）：このステップだけ別の bcsetting を使う（個体ごとに Aging を比べる用途）。
+前ステップ継承のステップは前のステップと同じ BC設定でなければ実行できない。サブモデルの差し替えは廃止（機種ごと＝①で1つ）。
 入力画像・ヒートマップは選んだ時点でシーケンスの基準サイズと比べ、違えば警告して選ばせない。
 処理パイプライン・A/B は将来枠（無効表示）。
 """
@@ -161,29 +162,34 @@ class StepConfigTab(QWidget):
         f3.addRow(hb_sim)
         form.addWidget(self.gb_sim)
 
-        # ---- サブモデルの差し替え（任意。2026-11-18 決定：表示＝deg2 だけに効く）----
-        self.gb_sm = QGroupBox(t("cfg.grp.sm"))
-        gs = QVBoxLayout(self.gb_sm)
-        self.cb_sm = QCheckBox(t("cfg.sm.cb"))
-        self.cb_sm.toggled.connect(self._on_sm_toggled)
-        gs.addWidget(self.cb_sm)
-        self.ed_sm = QLineEdit()
-        self.ed_sm.setReadOnly(True)
-        self.b_sm = QPushButton(t("btn.browse"))
-        self.b_sm.clicked.connect(self._pick_sm)
-        self.b_sm_open = QPushButton(t("panel.btn.open_excel"))
-        self.b_sm_open.clicked.connect(self._open_sm)
-        # 差し替えのファイル（と①の bcsetting）を Excel で保存したら検査し直す（2026-11-18）
-        self._sm_watch = FileWatch(self, self._on_sm_file_changed)
-        row_sm = QHBoxLayout()
-        row_sm.addWidget(self.ed_sm, 1)
-        row_sm.addWidget(self.b_sm)
-        row_sm.addWidget(self.b_sm_open)
-        gs.addLayout(row_sm)
-        self.lbl_sm_status = QLabel("")
-        self.lbl_sm_status.setWordWrap(True)
-        gs.addWidget(self.lbl_sm_status)
-        form.addWidget(self.gb_sm)
+        # ---- BC設定（個体）の差し替え（任意。2026-11-25 決定：個体ごとに Aging を比べる用途）----
+        # 以前の「サブモデルの差し替え」は廃止（サブモデルは機種ごと＝①で1つ）
+        self.gb_bc = QGroupBox(t("cfg.grp.bc"))
+        gs = QVBoxLayout(self.gb_bc)
+        self.cb_bc = QCheckBox(t("cfg.bc.cb"))
+        self.cb_bc.toggled.connect(self._on_bc_toggled)
+        gs.addWidget(self.cb_bc)
+        self.ed_bc = QLineEdit()
+        self.ed_bc.setReadOnly(True)
+        self.b_bc = QPushButton(t("btn.browse"))
+        self.b_bc.clicked.connect(self._pick_bc)
+        self.b_bc_open = QPushButton(t("panel.btn.open_excel"))
+        self.b_bc_open.clicked.connect(self._open_bc)
+        # 差し替えのファイル（と①のサブモデル）を Excel で保存したら検査し直す
+        self._bc_watch = FileWatch(self, self._on_bc_file_changed)
+        row_bc = QHBoxLayout()
+        row_bc.addWidget(self.ed_bc, 1)
+        row_bc.addWidget(self.b_bc)
+        row_bc.addWidget(self.b_bc_open)
+        gs.addLayout(row_bc)
+        self.lbl_bc_status = QLabel("")
+        self.lbl_bc_status.setWordWrap(True)
+        gs.addWidget(self.lbl_bc_status)
+        self.lbl_bc_note = QLabel(t("cfg.bc.note"))
+        self.lbl_bc_note.setWordWrap(True)
+        self.lbl_bc_note.setStyleSheet("color:#555;")
+        gs.addWidget(self.lbl_bc_note)
+        form.addWidget(self.gb_bc)
 
         # ---- 将来拡張 ----
         self.gb_future = QGroupBox(t("cfg.grp.future"))
@@ -239,10 +245,10 @@ class StepConfigTab(QWidget):
         for w in (self.ed_name, self.cmb_kind, self.ed_img, self.cmb_init,
                   self.sp_accel, self.sp_tl, self.sp_th, self.sp_aging, self.btn_apply,
                   self.b_img, self.cb_ht_fixed, self.b_load_sim, self.b_save_sim,
-                  self.sp_dbv, self.cb_dpk, *self.sp_gadj, self.cb_sm):
+                  self.sp_dbv, self.cb_dpk, *self.sp_gadj, self.cb_bc):
             w.setEnabled(on)
         self._sync_heatmap_widgets(on)
-        self._sync_sm_widgets()
+        self._sync_bc_widgets()
 
     # -- load / collect --
     def load(self, recipe: Recipe | None, row: int | None):
@@ -280,10 +286,10 @@ class StepConfigTab(QWidget):
         self.sp_th.setValue(recipe.sim_param["TMP_H"])
         self.sp_aging.setValue(recipe.sim_param["AGING_TIME"])
         self._set_display_fields(recipe.sim_param)
-        self.cb_sm.blockSignals(True)
-        self.cb_sm.setChecked(bool(recipe.sm_override))
-        self.cb_sm.blockSignals(False)
-        self._sync_sm_widgets()
+        self.cb_bc.blockSignals(True)
+        self.cb_bc.setChecked(bool(recipe.bcset_override))
+        self.cb_bc.blockSignals(False)
+        self._sync_bc_widgets()
         self._on_init_changed()
         self._refresh_previews()
 
@@ -321,83 +327,87 @@ class StepConfigTab(QWidget):
         r.sim_param["GADJ"] = [sp.value() for sp in self.sp_gadj]
         return True
 
-    # -- サブモデルの差し替え（選んだ・外した時点でレシピに反映。入力画像の選択と同じ）--
-    def _on_sm_toggled(self, checked: bool):
-        if self.recipe is not None and not checked and self.recipe.sm_override:
-            self.recipe.sm_override = ""             # チェックを外した → シーケンスの sm に戻す
-            self.main.logger.action(f"レシピ '{self.recipe.recipe_name}' のサブモデルの差し替えを解除")
-        self._sync_sm_widgets()
+    # -- BC設定（個体）の差し替え（選んだ・外した時点でレシピに反映。入力画像の選択と同じ）--
+    def _on_bc_toggled(self, checked: bool):
+        if self.recipe is not None and not checked and self.recipe.bcset_override:
+            self.recipe.bcset_override = ""          # チェックを外した → シーケンスの BC設定に戻す
+            self.main.logger.action(f"レシピ '{self.recipe.recipe_name}' の BC設定の差し替えを解除")
+        self._sync_bc_widgets()
 
-    def _sync_sm_widgets(self):
+    def _sync_bc_widgets(self):
         """欄の有効・無効と状態表示だけ（レシピは変えない）。"""
-        on = self.recipe is not None and self.cb_sm.isChecked()
-        for w in (self.ed_sm, self.b_sm, self.b_sm_open):
+        on = self.recipe is not None and self.cb_bc.isChecked()
+        for w in (self.ed_bc, self.b_bc, self.b_bc_open):
             w.setEnabled(on)
         if self.recipe is None:
-            self.ed_sm.setText("")
-            self.lbl_sm_status.setText("")
-            self._sm_watch.set_paths([])
+            self.ed_bc.setText("")
+            self.lbl_bc_status.setText("")
+            self._bc_watch.set_paths([])
             return
-        self._show_sm_status()
+        self._show_bc_status()
 
-    def _show_sm_status(self):
+    def _show_bc_status(self):
         seq, r = self.main.sequence, self.recipe
-        if not r.sm_override:
-            self.ed_sm.setText("")
-            self.lbl_sm_status.setStyleSheet("color:#555;")
-            self.lbl_sm_status.setText(t("cfg.sm.base", name=seq.panel.degparam_sm))
-            self._sm_watch.set_paths([])
+        if not r.bcset_override:
+            self.ed_bc.setText("")
+            self.lbl_bc_status.setStyleSheet("color:#555;")
+            self.lbl_bc_status.setText(t("cfg.bc.base", name=seq.panel.bcsetting))
+            self._bc_watch.set_paths([])
             return
-        self.ed_sm.setText(Path(r.sm_override).name)
-        path = Path(self._folders()["model"]) / r.sm_override      # 絶対パスならそのまま
-        self.ed_sm.setToolTip(str(path))
-        band = engine.check_bcset(seq.bcset_path()).band_num
-        chk = engine.check_sm(path, band)
+        self.ed_bc.setText(Path(r.bcset_override).name)
+        path = seq.bcset_path(self.row)                             # 絶対パスならそのまま
+        self.ed_bc.setToolTip(str(path))
+        chk = engine.check_bcset(path)
+        if chk.ok:                                                  # サブモデル（機種）と Band 数が合うか
+            sm = engine.check_sm(seq.sm_path(), chk.band_num)
+            if not sm.ok and any("Band" in p for p in sm.problems):
+                chk.problems.extend(sm.problems)
+                chk.data = None
         if chk.ok:
-            self.lbl_sm_status.setStyleSheet("color:#1b6e20;")
-            self.lbl_sm_status.setText(t("panel.ok", n=chk.band_num))
+            self.lbl_bc_status.setStyleSheet("color:#1b6e20;")
+            self.lbl_bc_status.setText(t("panel.ok", n=chk.band_num))
         else:
-            self.lbl_sm_status.setStyleSheet("color:#b00020;")
-            self.lbl_sm_status.setText(t("panel.ng", problems="\n".join(chk.problems)))
-        self._sm_watch.set_paths([path, seq.bcset_path()])
+            self.lbl_bc_status.setStyleSheet("color:#b00020;")
+            self.lbl_bc_status.setText(t("panel.ng", problems="\n".join(chk.problems)))
+        self._bc_watch.set_paths([path, seq.sm_path()])
         return chk
 
-    def _on_sm_file_changed(self, changed: list):
-        """差し替えのファイル（または bcsetting）が変わった（Excel で保存した）→ 検査し直す。"""
-        if self.recipe is None or not self.recipe.sm_override:
+    def _on_bc_file_changed(self, changed: list):
+        """差し替えのファイル（または①のサブモデル）が変わった（Excel で保存した）→ 検査し直す。"""
+        if self.recipe is None or not self.recipe.bcset_override:
             return
         names = ", ".join(p.name for p in changed)
-        self.main.logger.action(f"サブモデルの差し替えのファイルが変わったため検査し直しました: {names}")
-        self._show_sm_status()
+        self.main.logger.action(f"BC設定の差し替えのファイルが変わったため検査し直しました: {names}")
+        self._show_bc_status()
         self.main.statusBar().showMessage(t("panel.recheck.auto", names=names), 8000)
 
-    def _set_sm_override(self, p: Path, warn: bool = True):
-        """差し替えのファイルを設定する。モデルフォルダ内ならファイル名、外なら絶対パスで持つ
-        （①のモデルフォルダを動かすとシーケンスの sm の場所が変わってしまうため）。"""
-        model_dir = Path(self._folders()["model"]).resolve()
+    def _set_bc_override(self, p: Path, warn: bool = True):
+        """差し替えのファイルを設定する。BC設定フォルダ内ならファイル名、外なら絶対パスで持つ
+        （①の BC設定フォルダを動かすとシーケンスの BC設定の場所が変わってしまうため）。"""
+        bc_dir = Path(self._folders()["bcset"]).resolve()
         r = self.recipe
-        r.sm_override = p.name if p.parent.resolve() == model_dir else str(p.resolve())
-        self.main.logger.action(f"レシピ '{r.recipe_name}' のサブモデルを差し替え: {p}")
-        chk = self._show_sm_status()
+        r.bcset_override = p.name if p.parent.resolve() == bc_dir else str(p.resolve())
+        self.main.logger.action(f"レシピ '{r.recipe_name}' の BC設定を差し替え: {p}")
+        chk = self._show_bc_status()
         if warn and chk is not None and not chk.ok:
             QMessageBox.warning(self, t("panel.check.title"),
                                 t("panel.check.msg", name=p.name, problems="\n".join(chk.problems)))
 
-    def _pick_sm(self):
+    def _pick_bc(self):
         if self.recipe is None:
             return
-        cur = Path(self._folders()["model"]) / (self.recipe.sm_override or "")
-        start = str(cur.parent if self.recipe.sm_override else self._folders()["model"])
-        path, _ = QFileDialog.getOpenFileName(self, t("panel.sm"), start, "CSV (*.csv)")
+        start = str(self.main.sequence.bcset_path(self.row).parent if self.recipe.bcset_override
+                    else self._folders()["bcset"])
+        path, _ = QFileDialog.getOpenFileName(self, t("panel.bcset"), start, "CSV (*.csv)")
         if path:
-            self._set_sm_override(Path(path))
+            self._set_bc_override(Path(path))
 
-    def _open_sm(self):
+    def _open_bc(self):
         """差し替えのファイルを Excel で開く（複製はしない。保存すると自動で検査し直す）。"""
-        if self.recipe is None or not self.recipe.sm_override:
+        if self.recipe is None or not self.recipe.bcset_override:
             return
         from bisim.ui.tabs.folders import open_in_excel
-        path = self.main.sequence.sm_path(self.row)
+        path = self.main.sequence.bcset_path(self.row)
         if open_in_excel(self, path, self.main.logger):
             self.main.statusBar().showMessage(t("panel.open.done", path=str(path)), 8000)
 
@@ -621,10 +631,11 @@ class StepConfigTab(QWidget):
         self.l_dpk.setText(t("cfg.dpk_on"))
         self.cb_dpk.setText(t("cfg.dpk_on.cb"))
         self.l_gadj.setText(t("cfg.gadj"))
-        self.gb_sm.setTitle(t("cfg.grp.sm"))
-        self.cb_sm.setText(t("cfg.sm.cb"))
-        self.b_sm.setText(t("btn.browse"))
-        self.b_sm_open.setText(t("panel.btn.open_excel"))
+        self.gb_bc.setTitle(t("cfg.grp.bc"))
+        self.cb_bc.setText(t("cfg.bc.cb"))
+        self.b_bc.setText(t("btn.browse"))
+        self.b_bc_open.setText(t("panel.btn.open_excel"))
+        self.lbl_bc_note.setText(t("cfg.bc.note"))
         for key, cb in self._future_cbs.items():
             cb.setText(t(key))
         self.btn_apply.setText(t("cfg.btn.apply"))

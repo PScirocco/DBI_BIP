@@ -164,9 +164,12 @@ class Recipe:
     # 空のまま作ると入力ファイルの拡張子から決める（.png→eval、それ以外→aging）。
     # 種別の欄が無い旧 JSON も同じ規則で読み込むので、従来のシーケンスは同じ動作になる。
     step_type: str = ""
-    # サブモデル（degparam_sm.csv）をこのステップだけ差し替える（任意。①のモデルフォルダのファイル名）。
-    # 空＝シーケンスのパネル設定の sm。表示（deg2）だけに効き、stat には影響しない（2026-11-18 決定）
-    sm_override: str = ""
+    # BC設定（bcsetting.csv＝個体ごとの設定）をこのステップだけ差し替える（任意。2026-11-25 決定）。
+    # ①の BC設定フォルダのファイル名（フォルダの外なら絶対パス）。空＝シーケンスのパネル設定の bcsetting。
+    # 個体ごとに Aging を比べる用途（初期ストレス「なし」から始めるステップ）。前ステップ継承のステップは
+    # 前のステップと同じ BC設定でなければ実行できない（Sequence.bcset_chain_problems）。
+    # 以前の「サブモデルのステップごとの差し替え（sm_override）」は廃止（sm は機種ごと＝シーケンスに1組）
+    bcset_override: str = ""
 
     def __post_init__(self) -> None:
         if self.step_type not in STEP_TYPES:
@@ -216,7 +219,7 @@ class Recipe:
             "sim_param": {k: (list(v) if isinstance(v, (list, tuple)) else v)
                           for k, v in self.sim_param.items()},
             "sim_param_csv": self.sim_param_csv,
-            "sm_override": self.sm_override,
+            "bcset_override": self.bcset_override,
             "init_stress": self.init_stress,
             "init_stress_files": dict(self.init_stress_files),
         }
@@ -252,7 +255,7 @@ class Recipe:
             fixed_temp_c=fixed_temp_c,
             sim_param=sim,
             sim_param_csv=str(d.get("sim_param_csv", "")),
-            sm_override=str(d.get("sm_override", "") or ""),
+            bcset_override=str(d.get("bcset_override", "") or ""),
             init_stress=init,
             init_stress_files=dict(d.get("init_stress_files") or {}),
         )
@@ -320,15 +323,31 @@ class Sequence:
         return self.recipes.index(recipe)
 
     # ---- パネル設定のファイル ----
-    def bcset_path(self) -> Path:
-        return Path(self.folders["bcset"]) / self.panel.bcsetting
+    def bcset_path(self, index: "int | None" = None) -> Path:
+        """BC設定のパス。``index`` のステップに差し替え（``bcset_override``）があればそちら（絶対パスならそのまま）。"""
+        name = self.panel.bcsetting
+        if index is not None and 0 <= index < len(self.recipes) and self.recipes[index].bcset_override:
+            name = self.recipes[index].bcset_override
+        return Path(self.folders["bcset"]) / name
 
-    def sm_path(self, index: "int | None" = None) -> Path:
-        """サブモデルのパス。``index`` のステップに差し替え（``sm_override``）があればそちら。"""
-        name = self.panel.degparam_sm
-        if index is not None and 0 <= index < len(self.recipes) and self.recipes[index].sm_override:
-            name = self.recipes[index].sm_override
-        return Path(self.folders["model"]) / name
+    def sm_path(self) -> Path:
+        """サブモデルのパス（機種ごと＝シーケンスに1組）。"""
+        return Path(self.folders["model"]) / self.panel.degparam_sm
+
+    def bcset_chain_problems(self, indices=None) -> list:
+        """前ステップ継承のステップで、前のステップと BC設定（個体）が違うものの一覧（(ステップ番号, 前, 今)）。
+
+        個体Aの電流で劣化させたパネルを個体Bとして続けて扱うことになるので、実行させない（2026-11-25 決定）。
+        ``indices`` を渡すとそのステップだけ調べる（既定は全ステップ）。
+        """
+        out = []
+        for i in (range(len(self.recipes)) if indices is None else indices):
+            if i <= 0 or i >= len(self.recipes) or self.recipes[i].init_stress != "prev":
+                continue
+            a, b = self.bcset_path(i - 1), self.bcset_path(i)
+            if os.path.normcase(os.path.abspath(a)) != os.path.normcase(os.path.abspath(b)):
+                out.append((i + 1, a.name, b.name))
+        return out
 
     def use_standard_panel_folders_if_missing(self) -> list:
         """パネル設定のファイルがフォルダに無く、名前が標準ファイルと同じなら、標準のフォルダに切り替える。
@@ -372,6 +391,11 @@ class Sequence:
             panel = PanelConfig.from_dict(d["panel"])
         else:
             panel, warnings = cls._migrate_panel(raw_recipes, folders)
+        used_sm = [i + 1 for i, r in enumerate(raw_recipes) if r.get("sm_override")]
+        if used_sm:                              # 2026-11-25 に廃止した「サブモデルのステップごとの差し替え」
+            warnings.append(
+                "サブモデルのステップごとの差し替えは廃止しました（サブモデルは機種ごと＝①で1つ）。"
+                f"差し替えを指定していたステップ {', '.join(f'{n:02d}' for n in used_sm)} は ①のサブモデルを使います")
         return cls(
             sequence_name=str(d.get("sequence_name", "sequence")),
             folders=folders,
