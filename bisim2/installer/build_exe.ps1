@@ -8,6 +8,7 @@
     - pyinstaller が無ければ pip で入れる（社内ミラー経由）
     - dist\BI-sim\BI-sim.exe を生成（onedir）
     - 最後に dist\BI-sim を zip 化（失敗してもフォルダは完成しているので致命的ではない）
+    - さらにインストーラ dist\BI-sim_setup_YYMMDD.exe（1つの EXE。Python 不要）を作る（installer\setup.spec）
 #>
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
@@ -65,4 +66,33 @@ if ($zipped) {
 } else {
     Write-Host "zip は作れませんでした。dist\BI-sim\ を手動で zip 化するか、フォルダごとコピー配布してください。" -ForegroundColor Yellow
     Write-Host "  例: tar -a -c -f dist\BI-sim.zip -C dist BI-sim" -ForegroundColor Yellow
+}
+
+# ---- インストーラ（1つの EXE。2026-11-25）----
+# dist\BI-sim の中身を BI-sim_payload.zip にし、installer\setup.spec で BI-sim_setup.exe を作る。
+# インストールするPCに Python は要らない。ここで失敗しても dist\BI-sim\ と zip は完成済み。
+Write-Host ""
+Write-Host "インストーラを作ります..." -ForegroundColor Cyan
+$payload = Join-Path $repo "dist\BI-sim_payload.zip"
+$info = Join-Path $repo "dist\payload_info.txt"
+$ver = (& $py -c "import bisim; print(bisim.__version__)").Trim()
+$stamp = Get-Date -Format "yyMMdd"
+Set-Content -Path $info -Value ("{0} ({1})" -f $ver, (Get-Date -Format "yyyy-MM-dd")) -Encoding UTF8
+& $py -c "import shutil,sys; shutil.make_archive(sys.argv[1][:-4], 'zip', root_dir=sys.argv[2])" $payload $dist
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $payload)) {
+    Write-Warning "BI-sim_payload.zip を作れませんでした。インストーラは作りません。"
+} else {
+    & $py -m PyInstaller --noconfirm --clean --distpath (Join-Path $repo "dist") --workpath (Join-Path $repo "build\setup") "installer\setup.spec"
+    $setup = Join-Path $repo "dist\BI-sim_setup.exe"
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $setup)) {
+        $named = Join-Path $repo ("dist\BI-sim_setup_{0}.exe" -f $stamp)
+        if (Test-Path $named) { Remove-Item -Force $named }
+        Move-Item $setup $named
+        Remove-Item -Force $payload, $info -ErrorAction SilentlyContinue
+        $ssize = "{0:N0} MB" -f ((Get-Item $named).Length / 1MB)
+        Write-Host "インストーラ: $named  ($ssize)" -ForegroundColor Green
+        Write-Host "  別PCではこの1つの EXE を実行するだけでインストールできます（Python は不要）。"
+    } else {
+        Write-Warning "インストーラの作成に失敗しました（dist\BI-sim\ と zip は使えます）。"
+    }
 }

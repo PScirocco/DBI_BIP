@@ -173,6 +173,11 @@ dist\BI-sim\
 
 ## 7. クリーンPCでの受け入れ確認
 
+**2026-11-25 からインストーラがある**：`build_exe.ps1` は最後に `dist\BI-sim_setup_YYMMDD.exe`（1つの EXE、Python 不要）も作る。
+受け取り側はこれを実行するだけでよい（既定のインストール先 `%LOCALAPPDATA%\Programs\BI-sim`、管理者権限不要、
+スタートメニュー・デスクトップのショートカット、「インストールされているアプリ」からアンインストール）。
+仕組みは `installer/README.md` の「インストーラ」。zip を展開して使う従来の方法も使える（下記）。
+
 Python も開発ツールも無いPC（社内の別PC / まっさらな VM）で:
 
 1. `BI-sim_YYMMDD.zip` を任意フォルダに展開（例 `C:\Tools\BI-sim\`）

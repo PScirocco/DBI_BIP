@@ -10,7 +10,9 @@ IP設計者へ **EXE で配布**するための PyInstaller 一式。
 |---|---|
 | `bisim.spec` | PyInstaller spec（**6.x 用**。onedir。同梱データ・除外モジュールを定義） |
 | `bisim_launcher.py` | エントリスクリプト（`python -m bisim` 相当。`freeze_support`） |
-| `build_exe.ps1` | ビルド補助（.venv + pyinstaller → `dist/BI-sim/` → zip） |
+| `build_exe.ps1` | ビルド補助（.venv + pyinstaller → `dist/BI-sim/` → zip → インストーラ） |
+| `setup_main.py` | インストーラの本体（2026-11-25）。画面（tkinter）・コピー・ショートカット・アンインストールの登録 |
+| `setup.spec` | インストーラの PyInstaller spec（onefile。`dist/BI-sim_payload.zip` を中に持つ） |
 
 ## クイックビルド
 
@@ -19,8 +21,21 @@ IP設計者へ **EXE で配布**するための PyInstaller 一式。
 .\.venv\Scripts\pip install pyinstaller
 .\.venv\Scripts\python -m bisim.selftest      # 全 pass を確認
 .\installer\build_exe.ps1
-# → dist\BI-sim\BI-sim.exe ＋ dist\BI-sim_YYMMDD.zip
+# → dist\BI-sim\BI-sim.exe ＋ dist\BI-sim_YYMMDD.zip ＋ dist\BI-sim_setup_YYMMDD.exe（インストーラ）
 ```
+
+## インストーラ（`BI-sim_setup_YYMMDD.exe`。2026-11-25）
+
+- **1つの EXE を実行するだけでインストールできる**（インストールするPCに Python は要らない）
+- インストール先の既定は `%LOCALAPPDATA%\Programs\BI-sim`（**管理者権限は不要**）。BI-sim はログ・設定・既定の出力を
+  EXE と同じフォルダに書くので、書き込みのできるユーザーのフォルダに入れる（Program Files には入れない）
+- 前のバージョンがあれば、プログラム（`BI-sim.exe`・`_internal`）だけ入れ替える。ログ・設定・出力（`_log_BISim`・
+  `bisim_app.json`・`bisim_output`）やユーザーが置いたデータ（`eval_test` など）は残す
+- スタートメニュー（BI-sim・BI-sim のアンインストール）とデスクトップ（任意）にショートカットを作る
+- Windows の「インストールされているアプリ」に登録（HKCU）。アンインストールはインストール先の `uninstall.bat`
+  （プログラム・ショートカット・登録を消し、ログ・設定・出力を消すかは聞く）
+- 署名していないので、初回は SmartScreen の「Windows によって PC が保護されました」が出ることがある →「詳細情報」→「実行」
+- 画面なしのテスト：`python installer\setup_main.py --silent --payload <zip> --dir <先> --startmenu-dir <dir> --desktop-dir <dir> --reg-name <名前>`
 
 ## 同梱されるもの / されないもの
 
