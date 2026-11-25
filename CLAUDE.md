@@ -54,7 +54,7 @@ IPハード設計者の担当。担当者は GUI・ワークフロー・可視�
 
 ## 現在の状況（2026-11-25）
 
-- **2026-11-25 BI-sim.exe を onefile（1つの EXE、`_internal` フォルダなし）に変更**（担当者の依頼。インストーラでの確認 OK の後）：`installer/bisim.spec` は onefile、`build_exe.ps1` は `--distpath dist\BI-sim` で従来と同じ `dist\BI-sim\BI-sim.exe`。起動のたびに `%TEMP%\_MEIxxxxxx` へ展開するので起動・終了は遅くなるが計算の速さは同じ。インストーラは前の版の `_internal` を消して入れ替える。EXEビルド手順書 §5・§9（「展開は初回だけ」は誤りだったので訂正）。別PCでビルドと確認が必要
+- **2026-11-25 BI-sim.exe を onefile（1つの EXE、`_internal` フォルダなし）に変更**（担当者の依頼。インストーラでの確認 OK の後）：`installer/bisim.spec` は onefile、`build_exe.ps1` は `--distpath dist\BI-sim` で従来と同じ `dist\BI-sim\BI-sim.exe`。起動のたびに `%TEMP%\_MEIxxxxxx` へ展開するので起動・終了は遅くなるが計算の速さは同じ。インストーラは前の版の `_internal` を消して入れ替える。EXEビルド手順書 §5・§9（「展開は初回だけ」は誤りだったので訂正）。**別PCで確認 OK**（インストーラも OK）
 - **2026-11-25 インストーラを追加**（担当者の依頼：Python の無いPCで EXE 1つでインストール）：`installer/setup_main.py`（tkinter の画面、既定 `%LOCALAPPDATA%\Programs\BI-sim`・管理者不要、更新時はプログラムだけ入れ替えログ・設定・出力は残す、スタートメニュー・デスクトップ、HKCU の「アプリ」登録、`uninstall.bat`）、`installer/setup.spec`（onefile）、`build_exe.ps1` が最後に `dist\BI-sim_setup_YYMMDD.exe` を作る。開発PCでは PyInstaller が無いので、`--silent` で インストール・更新・アンインストール（残す／消す）を確認済み。EXE の作成と確認は別PC（`doc/progress/261125_インストーラ確認チェックリスト.md`）
 - **2026-11-25 ③の「サブモデルの差し替え」を「BC設定（個体）の差し替え」に変更**（担当者の指示。松井さんの「mm・sm＝機種ごと、bcsetting＝個体ごと」を重視。selftest 125/125）：
   `Recipe.bcset_override`（`sm_override` は廃止。前の JSON の指定は開いたときに警告して無視）、`Sequence.bcset_path(i)`・`sm_path()`（引数なし）、
